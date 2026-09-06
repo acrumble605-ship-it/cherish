@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+:root {
+  --maroon-deep: #1a050d;
+  --maroon-mid: #2d0b1b;
+  --purplish: #4a0e2e;
+  --gold: #c5a059;
+  --text-light: #f5f2ed;
+  --f-serif: 'Cormorant Garamond', 'Georgia', serif;
+  --f-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  margin: 0;
+  background-color: var(--maroon-deep);
+  color: var(--text-light);
+  font-family: var(--f-serif);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.font-serif-lux {
+  font-family: var(--f-serif);
+}
+
+.font-sans-lux {
+  font-family: var(--f-sans);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: rgba(45, 11, 27, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(197, 160, 89, 0.2);
+}
+
+.glow {
+  box-shadow: 0 0 30px rgba(74, 14, 46, 0.5);
+}
+
+.glow-gold {
+  box-shadow: 0 0 30px rgba(197, 160, 89, 0.2);
+}
+
+.atmosphere {
+  background: radial-gradient(circle at 50% -10%, var(--purplish) 0%, transparent 65%);
+}
+
+.letter-spacing-wide {
+  letter-spacing: 0.3em;
+}
+
+.gold-hairline {
+  height: 1px;
+  width: 100%;
+  background-color: var(--gold);
+  opacity: 0.3;
+}
+
+/* Custom subtle scrollbar matching the Immersive UI theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1a050d;
+}
+::-webkit-scrollbar-thumb {
+  background: #4a0e2e;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c5a059;
+}
+
