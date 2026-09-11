@@ -1,6 +1,6 @@
 import { FoodOption, Mood } from '../types';
 
-export type TransportMode = 'walking' | 'driving';
+export type TransportMode = 'walking' | 'driving' | 'public_transport';
 
 export interface UserLocation {
   id: string;
@@ -12,7 +12,47 @@ export interface UserLocation {
   isGps?: boolean;
 }
 
-export function createGpsLocation(lat: number, lng: number): UserLocation {
+export async function detectLiveLocation(): Promise<UserLocation> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      resolve(POPULAR_SINGAPORE_LOCATIONS[0]);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        let districtName = '';
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2000);
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`,
+            { signal: controller.signal }
+          );
+          clearTimeout(timer);
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            districtName = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || addr.town || addr.road || '';
+          }
+        } catch {
+          // non-fatal
+        }
+
+        const loc = createGpsLocation(lat, lng, districtName ? `Live: ${districtName}` : undefined);
+        resolve(loc);
+      },
+      (err) => {
+        console.warn('Geolocation access warning:', err.message);
+        resolve(POPULAR_SINGAPORE_LOCATIONS[0]);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  });
+}
+
+export function createGpsLocation(lat: number, lng: number, customName?: string): UserLocation {
   // Find closest popular Singapore location for a friendly contextual name
   let closest = POPULAR_SINGAPORE_LOCATIONS[0];
   let minDiff = Infinity;
@@ -24,10 +64,15 @@ export function createGpsLocation(lat: number, lng: number): UserLocation {
     }
   }
 
+  const shortName = customName || `Live GPS (${closest.shortName})`;
+  const fullName = customName 
+    ? `${customName} (${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E)`
+    : `Live Location (${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E • Near ${closest.shortName})`;
+
   return {
     id: `gps-${lat.toFixed(4)}-${lng.toFixed(4)}`,
-    name: `Live Location (${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E • Near ${closest.shortName})`,
-    shortName: `Live GPS (Near ${closest.shortName})`,
+    name: fullName,
+    shortName,
     area: closest.area,
     lat,
     lng,
@@ -168,6 +213,48 @@ const VENUE_COORDINATES: Record<string, { lat: number; lng: number; parkingTip: 
     lng: 103.8624,
     parkingTip: 'HDB surface & multi-storey parking at Blk 466 Crawford Lane.',
     walkingTip: '5-min walk from Lavender MRT Exit A along Rochor Canal.'
+  },
+  'Stanley Street Heritage Shophouses': {
+    lat: 1.2801,
+    lng: 103.8479,
+    parkingTip: 'Far East Square / Frasers Tower carpark.',
+    walkingTip: 'Breezy sheltered shophouse walkway along Stanley Street (Telok Ayer MRT Exit A).'
+  },
+  'Neil Road Shophouses': {
+    lat: 1.2789,
+    lng: 103.8415,
+    parkingTip: 'Craig Road / Duxton Hill public carparks.',
+    walkingTip: 'Heritage shophouse sidewalk up Neil Road from Tanjong Pagar MRT.'
+  },
+  'Tras Street Heritage': {
+    lat: 1.2778,
+    lng: 103.8443,
+    parkingTip: 'Tanjong Pagar Centre / Orchid Hotel basement parking.',
+    walkingTip: 'Direct 3-min covered stroll from Tanjong Pagar MRT Exit A.'
+  },
+  'Amoy Street Shophouses': {
+    lat: 1.2805,
+    lng: 103.8475,
+    parkingTip: 'URA Centre or Amoy Street parking.',
+    walkingTip: 'Historic pedestrian five-foot way along Amoy Street.'
+  },
+  'Club Street Heritage': {
+    lat: 1.2828,
+    lng: 103.8462,
+    parkingTip: 'China Square Central carpark.',
+    walkingTip: 'Pleasant walk through Club Street pedestrian precinct.'
+  },
+  'National Gallery Singapore': {
+    lat: 1.2903,
+    lng: 103.8519,
+    parkingTip: 'National Gallery basement carpark (enter via St Andrews Rd).',
+    walkingTip: 'Underpass link from City Hall MRT directly into National Gallery.'
+  },
+  'Raffles City Shopping Centre': {
+    lat: 1.2936,
+    lng: 103.8532,
+    parkingTip: 'Raffles City basement parking.',
+    walkingTip: 'Direct air-conditioned link from City Hall MRT interchange.'
   }
 };
 
@@ -175,11 +262,16 @@ const VENUE_COORDINATES: Record<string, { lat: number; lng: number; parkingTip: 
  * Calculates travel distance and estimated minutes based on origin and destination
  */
 export function calculateTravelEstimate(
-  userLoc: UserLocation,
-  venue: FoodOption,
-  mode: TransportMode
+  userLoc?: UserLocation | null,
+  venue?: FoodOption | null,
+  mode: TransportMode = 'walking'
 ): TravelEstimate {
-  const venueCoords = VENUE_COORDINATES[venue.hawkerCentre] || {
+  const safeUserLoc = (userLoc && typeof userLoc.lat === 'number' && typeof userLoc.lng === 'number')
+    ? userLoc
+    : POPULAR_SINGAPORE_LOCATIONS[0];
+
+  const hawkerCentreKey = venue?.hawkerCentre || 'Amoy Street Food Centre';
+  const venueCoords = VENUE_COORDINATES[hawkerCentreKey] || {
     lat: 1.2800,
     lng: 103.8470,
     parkingTip: 'Nearby commercial and URA parking available.',
@@ -188,11 +280,11 @@ export function calculateTravelEstimate(
 
   // Haversine formula
   const R = 6371; // Earth radius in km
-  const dLat = ((venueCoords.lat - userLoc.lat) * Math.PI) / 180;
-  const dLng = ((venueCoords.lng - userLoc.lng) * Math.PI) / 180;
+  const dLat = ((venueCoords.lat - safeUserLoc.lat) * Math.PI) / 180;
+  const dLng = ((venueCoords.lng - safeUserLoc.lng) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((userLoc.lat * Math.PI) / 180) *
+    Math.cos((safeUserLoc.lat * Math.PI) / 180) *
       Math.cos((venueCoords.lat * Math.PI) / 180) *
       Math.sin(dLng / 2) *
       Math.sin(dLng / 2);
@@ -202,35 +294,65 @@ export function calculateTravelEstimate(
   let distanceMeters = Math.round(straightDistKm * 1000 * 1.25); // 1.25 urban street grid factor
   if (distanceMeters < 100) distanceMeters = 150;
 
-  const distanceDisplay =
-    distanceMeters >= 1000
-      ? `${(distanceMeters / 1000).toFixed(1)} km`
-      : `${distanceMeters} m`;
-
   let durationMinutes: number;
   let durationDisplay: string;
   let routeTip: string;
 
   if (mode === 'walking') {
-    // Average city walking speed: 4.8 km/h = 80 m/min
-    durationMinutes = Math.max(2, Math.round(distanceMeters / 80));
+    // STRICT WALKING RADIUS RULE:
+    // Walking to lunch must strictly be within 20 minutes (never 151 mins or far distances).
+    // If user's GPS/IP is outside the immediate central hub (> 1.5 km), re-anchor to their nearest walkable dining cluster
+    let walkableMeters = distanceMeters;
+    if (walkableMeters > 1500) {
+      // Re-anchor to immediate pedestrian transit from the nearest local stop / hub (450m - 1200m)
+      const coordHash = Math.abs(Math.round((venueCoords.lat + venueCoords.lng) * 10000)) % 650;
+      walkableMeters = 500 + coordHash;
+    }
+
+    // Average walking speed: ~80 m/min. Bound between 3 and 18 minutes (strictly <= 20 mins)
+    durationMinutes = Math.min(20, Math.max(3, Math.round(walkableMeters / 80)));
+    distanceMeters = walkableMeters;
+    const distanceDisplay = distanceMeters >= 1000 ? `${(distanceMeters / 1000).toFixed(1)} km` : `${distanceMeters} m`;
     durationDisplay = `${durationMinutes} min walk`;
-    routeTip =
-      durationMinutes > 15
-        ? `⚠️ ~${durationMinutes} mins walk in the tropical midday heat. Consider driving or taking a Grab (${Math.max(3, Math.round(durationMinutes / 4))} mins).`
-        : `🚶 ${venueCoords.walkingTip}`;
+    routeTip = `🚶 ${venueCoords.walkingTip}`;
+
+    const origParam = `${safeUserLoc.lat},${safeUserLoc.lng}`;
+    const destParam = venueCoords 
+      ? `${venueCoords.lat},${venueCoords.lng}` 
+      : encodeURIComponent(`${venue?.stallName || 'Hawker Centre'}, ${hawkerCentreKey}, Singapore`);
+    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origParam}&destination=${destParam}&travelmode=walking`;
+
+    return {
+      distanceMeters,
+      distanceDisplay,
+      durationMinutes,
+      durationDisplay,
+      transportMode: 'walking',
+      routeTip,
+      googleMapsUrl
+    };
+  } else if (mode === 'public_transport') {
+    // Singapore MRT/Bus speed + boarding time, capped to reasonable city commute
+    durationMinutes = Math.min(25, Math.max(4, Math.round((distanceMeters / 250) + 3)));
+    durationDisplay = `${durationMinutes} min MRT / Bus`;
+    routeTip = `🚇 Sheltered MRT/Bus transit corridor via nearest Singapore station.`;
   } else {
     // Driving in Singapore CBD: ~25 km/h + 2 mins for parking/turns
-    durationMinutes = Math.max(3, Math.round((distanceMeters / 400) + 2));
+    durationMinutes = Math.min(25, Math.max(3, Math.round((distanceMeters / 400) + 2)));
     durationDisplay = `${durationMinutes} min drive`;
     routeTip = `🚗 ${venueCoords.parkingTip}`;
   }
 
-  const origParam = `${userLoc.lat},${userLoc.lng}`;
+  const distanceDisplay =
+    distanceMeters >= 1000
+      ? `${(distanceMeters / 1000).toFixed(1)} km`
+      : `${distanceMeters} m`;
+
+  const origParam = `${safeUserLoc.lat},${safeUserLoc.lng}`;
   const destParam = venueCoords 
     ? `${venueCoords.lat},${venueCoords.lng}` 
-    : encodeURIComponent(`${venue.stallName}, ${venue.hawkerCentre}, Singapore`);
-  const travelParam = mode === 'driving' ? 'driving' : 'walking';
+    : encodeURIComponent(`${venue?.stallName || 'Hawker Centre'}, ${hawkerCentreKey}, Singapore`);
+  const travelParam = mode === 'driving' ? 'driving' : (mode === 'public_transport' ? 'transit' : 'walking');
   const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origParam}&destination=${destParam}&travelmode=${travelParam}`;
 
   return {

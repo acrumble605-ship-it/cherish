@@ -21,6 +21,7 @@ export interface FoodOption {
   tags: string[];
   imageUrl?: string;
   googleMapsUrl?: string;
+  venueType?: 'hawker' | 'restaurant' | 'cafe';
 }
 
 export interface PersonalizedNote {
@@ -40,6 +41,35 @@ export interface PersonalizedNote {
   counterModification?: string;
 }
 
+export interface DualChoiceComparison {
+  choiceA: string;
+  choiceB: string;
+  winner: 'A' | 'B';
+  verdictTitle: string;
+  verdictReasoning: string;
+  slumpRiskA: {
+    level: 'low' | 'moderate' | 'high';
+    percentage: number;
+    description: string;
+  };
+  slumpRiskB: {
+    level: 'low' | 'moderate' | 'high';
+    percentage: number;
+    description: string;
+  };
+  psychologyInsight: string;
+  isCoinFlip?: boolean;
+}
+
+export interface EnergyNudge {
+  slumpRiskLevel: 'low' | 'moderate' | 'high';
+  forecastLabel: string;
+  forecastDetail: string;
+  counterHack: string;
+  drinkPairingHack: string;
+  psychologyAngle: string;
+}
+
 export interface KaleRecommendation {
   option: FoodOption;
   pro: string;
@@ -50,15 +80,20 @@ export interface KaleRecommendation {
   sourceType: 'mood' | 'fast_lane' | 'banked' | 'mystery';
   sourceQuery?: string;
   decisionPriority?: string;
+  curiosityTeaser?: string;
+  mischiefNote?: string;
+  weatherAdvice?: string;
   travelEstimate?: {
     distanceMeters: number;
     distanceDisplay: string;
     durationMinutes: number;
     durationDisplay: string;
-    transportMode: 'walking' | 'driving';
+    transportMode: 'walking' | 'driving' | 'public_transport';
     routeTip: string;
     googleMapsUrl: string;
   };
+  dualChoiceComparison?: DualChoiceComparison;
+  energyNudge?: EnergyNudge;
 }
 
 export interface SquadMember {
@@ -148,4 +183,73 @@ export interface UserProfile {
   totalSavedDollars: number;
   mealsDecidedCount: number;
   homeCookedCount: number;
+  lastLat?: number;
+  lastLng?: number;
+  transportPreference: 'walking' | 'driving' | 'public_transport';
+  venuePreference: 'cafe' | 'hawker' | 'restaurant';
 }
+
+export interface CommunityPost {
+  id: string;
+  authorName: string;
+  authorHandle: string;
+  authorAvatar: string;
+  dishName: string;
+  placeName: string;
+  locationArea: string;
+  venueType: 'cafe' | 'hawker' | 'restaurant';
+  verdict: 'recommend' | 'avoid';
+  verdictTag: string;
+  rating: number;
+  price: string;
+  walkMinutes?: number;
+  honestReview: string;
+  proHighlight: string;
+  conHighlight: string;
+  photoUrl?: string;
+  timestamp: string;
+  agreeCount: number;
+  userAgreed?: boolean;
+}
+
+export interface QuickDecision {
+  question: string;
+  options: string[];
+  pick: string;
+  oneLiner: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  dishName: string;
+  stallName: string;
+  hawkerCentre?: string;
+  timestamp: string;
+  dateIso: string;
+  photoUrl: string;
+  stickers: string[];
+  rating: number;
+  price?: string;
+  calories?: string;
+  note?: string;
+  spiceLevel?: 'Mild 🌶️' | 'Medium 🌶️🌶️' | 'Extra Shiok 🌶️🌶️🌶️' | 'Non-Spicy 🥗';
+  frameStyle?: 'polaroid' | 'gold' | 'neon' | 'clean';
+  source?: 'solo' | 'squad' | 'cook';
+}
+
+export interface DailyChatMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  verdict?: string;
+}
+
+export interface DailyDecisionItem {
+  id: string;
+  title: string;
+  verdict: string;
+  date: string;
+  category: 'purchase' | 'lifestyle' | 'duel' | 'general';
+}
+

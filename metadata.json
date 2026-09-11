@@ -1,6 +1,10 @@
 {
   "name": "Cherish",
-  "description": "Luxurious mindful food decision concierge with purplish-maroon elegance, banishing meal fatigue for Singapore hawker dining, squads, and mindful home cooking.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "description": "Luxurious mindful decision concierge with purplish-maroon elegance, banishing fatigue for Singapore hawker dining, squads, and everyday daily life choices.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

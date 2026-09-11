@@ -24,7 +24,8 @@ import {
   Soup,
   Leaf,
   Layers,
-  Sparkle
+  Sparkle,
+  Zap
 } from 'lucide-react';
 import { SINGAPORE_HAWKER_DATABASE } from '../data/hawkerData';
 import { 
@@ -41,12 +42,13 @@ interface SquadViewProps {
   userDiet?: string;
   userBudget?: string;
   userPriorities?: string[];
-  currentLocation: UserLocation;
-  setCurrentLocation: (loc: UserLocation) => void;
-  transportMode: TransportMode;
-  setTransportMode: (mode: TransportMode) => void;
-  onDetectGPS: () => void;
+  currentLocation?: UserLocation;
+  setCurrentLocation?: (loc: UserLocation) => void;
+  transportMode?: TransportMode;
+  setTransportMode?: (mode: TransportMode) => void;
+  onDetectGPS?: () => void;
   isLocating?: boolean;
+  onOpenLogMeal?: () => void;
 }
 
 interface CravingChipOption {
@@ -106,11 +108,41 @@ export const SquadView: React.FC<SquadViewProps> = ({
   transportMode,
   setTransportMode,
   onDetectGPS,
-  isLocating = false
+  isLocating,
+  onOpenLogMeal
 }) => {
   // State 1 vs State 2: 'pending' (waiting on group) vs 'settled' (where we are eating + what to get)
   const [decisionState, setDecisionState] = useState<'pending' | 'settled'>('pending');
+
+  // Squad Decision Multi-Step Flow: 'pick' -> 'waiting' (leaving user hanging with gambling excitement) -> 'voting_view'
+  const [squadPhase, setSquadPhase] = useState<'pick' | 'waiting' | 'voting_view'>('pick');
+
+  // Interactive Craving Slot Machine State (Gambling / Odds Excitement)
+  const [isSpinning, setIsSpinning] = useState(false);
+  const [slotReels, setSlotReels] = useState<string[]>(['🌶️', '🥟', '🍗']);
+  const [slotJackpot, setSlotJackpot] = useState<string | null>(null);
+  const [spinCount, setSpinCount] = useState<number>(0);
+  const [nudgeStatus, setNudgeStatus] = useState<string | null>(null);
   
+  // User location & transport mode (internal fallback if not passed as props)
+  const [internalLocation, setInternalLocation] = useState<UserLocation>(POPULAR_SINGAPORE_LOCATIONS[0]);
+  const [internalTransportMode, setInternalTransportMode] = useState<TransportMode>('walking');
+  const [internalIsLocating, setInternalIsLocating] = useState<boolean>(false);
+
+  const activeLocation = currentLocation || internalLocation;
+  const activeTransportMode = transportMode || internalTransportMode;
+  const activeIsLocating = isLocating ?? internalIsLocating;
+
+  const updateLocation = (loc: UserLocation) => {
+    if (setCurrentLocation) setCurrentLocation(loc);
+    setInternalLocation(loc);
+  };
+
+  const updateTransportMode = (mode: TransportMode) => {
+    if (setTransportMode) setTransportMode(mode);
+    setInternalTransportMode(mode);
+  };
+
   // User's private craving selection (single-tap chip, strictly private)
   const [privateCraving, setPrivateCraving] = useState<Mood>('light');
   const [hasSubmittedMood, setHasSubmittedMood] = useState<boolean>(true);
@@ -126,8 +158,8 @@ export const SquadView: React.FC<SquadViewProps> = ({
 
   // Calculate travel estimate dynamically based on current location, venue, and walking/driving
   const travelEstimate = useMemo(() => {
-    return calculateTravelEstimate(currentLocation, settledVenue, transportMode);
-  }, [currentLocation, settledVenue, transportMode]);
+    return calculateTravelEstimate(activeLocation, settledVenue, activeTransportMode);
+  }, [activeLocation, settledVenue, activeTransportMode]);
 
   // Retrieve private in-venue dish order crafted for the user at that EXACT hawker location with priority awareness
   const inVenueOrder = useMemo(() => {
@@ -136,8 +168,12 @@ export const SquadView: React.FC<SquadViewProps> = ({
 
   // Handle GPS location detection
   const handleDetectGPS = () => {
+    if (onDetectGPS) {
+      onDetectGPS();
+      return;
+    }
     if (!navigator.geolocation) return;
-    setIsLocating(true);
+    setInternalIsLocating(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
@@ -151,11 +187,11 @@ export const SquadView: React.FC<SquadViewProps> = ({
             closest = loc;
           }
         });
-        setCurrentLocation(closest);
-        setIsLocating(false);
+        updateLocation(closest);
+        setInternalIsLocating(false);
       },
       () => {
-        setIsLocating(false);
+        setInternalIsLocating(false);
       },
       { timeout: 5000 }
     );
@@ -167,14 +203,70 @@ export const SquadView: React.FC<SquadViewProps> = ({
     setHasSubmittedMood(true);
   };
 
+  // Confirm pick and move to waiting phase (leaves user hanging with gambling excitement!)
+  const handleConfirmPick = () => {
+    setSquadPhase('waiting');
+  };
+
+  // Interactive Craving Slot Machine Spin Handler
+  const FOOD_ICONS = ['🌶️', '🥟', '🍗', '🍲', '🥗', '☕', '🍜', '🍱'];
+
+  const handleSpinSlots = () => {
+    if (isSpinning) return;
+    setIsSpinning(true);
+    setSlotJackpot(null);
+
+    let count = 0;
+    const interval = setInterval(() => {
+      count++;
+      setSlotReels([
+        FOOD_ICONS[Math.floor(Math.random() * FOOD_ICONS.length)],
+        FOOD_ICONS[Math.floor(Math.random() * FOOD_ICONS.length)],
+        FOOD_ICONS[Math.floor(Math.random() * FOOD_ICONS.length)]
+      ]);
+
+      if (count >= 9) {
+        clearInterval(interval);
+        setIsSpinning(false);
+        setSpinCount(c => c + 1);
+
+        // Calculate thrilling casino payoff
+        const isJackpot = Math.random() < 0.45;
+        const iconA = FOOD_ICONS[Math.floor(Math.random() * 4)];
+        const result = isJackpot 
+          ? [iconA, iconA, iconA]
+          : [iconA, FOOD_ICONS[Math.floor(Math.random() * FOOD_ICONS.length)], iconA];
+        
+        setSlotReels(result);
+
+        if (result[0] === result[1] && result[1] === result[2]) {
+          setSlotJackpot(`🎰 JACKPOT! 3x ${result[0]}! The food universe commands this craving! (+500 Squad Karma)`);
+        } else if (result[0] === result[2]) {
+          setSlotJackpot(`🎲 DOUBLE HIT! 2x ${result[0]}! Odds are swinging heavily towards this flavor!`);
+        } else {
+          setSlotJackpot(`✨ Hot spin! Craving tension dialed up!`);
+        }
+      }
+    }, 85);
+  };
+
+  const handleSendNudge = (type: 'hurry' | 'double_down') => {
+    if (type === 'hurry') {
+      setNudgeStatus('⚡ Sent spicy smoke signal to Sarah & Wei Ming: "Faster pick la, lunch queue getting long!" 🏃');
+    } else {
+      setNudgeStatus('💰 Doubled down! You added +2 heat tokens to your craving in the squad pool! 🔥');
+    }
+    setTimeout(() => setNudgeStatus(null), 3500);
+  };
+
   // Group settles on a pick (triggered or resolved)
   const handleSettleGroupDecision = () => {
     // Determine the optimal hawker centre based on user location and transport mode:
     // When walking, prioritize nearby centres (< 1000m)
     let candidates = [...SINGAPORE_HAWKER_DATABASE];
-    if (transportMode === 'walking') {
+    if (activeTransportMode === 'walking') {
       const nearVenues = candidates.filter(v => {
-        const est = calculateTravelEstimate(currentLocation, v, 'walking');
+        const est = calculateTravelEstimate(activeLocation, v, 'walking');
         return est.durationMinutes <= 12;
       });
       if (nearVenues.length > 0) {
@@ -216,250 +308,591 @@ export const SquadView: React.FC<SquadViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto py-6 px-4 space-y-7" id="squad-screen-root">
+    <div className="w-full max-w-3xl mx-auto py-4 px-3 sm:px-4 space-y-5 font-sans" id="squad-screen-root">
       
-      {/* =========================================================================
-          SQUAD HEADER & CONCIERGE IDENTITY
-          Refined dark theme with burnt-orange & gold highlights
-          ========================================================================= */}
-      <div className="rounded-3xl glass bg-[#2d0b1b]/35 border border-white/10 p-6 sm:p-7 glow relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-[#ea580c]/10 rounded-full blur-3xl pointer-events-none" />
+      {/* SQUAD HEADER & UNIFIED CONTEXT */}
+      <div className="rounded-3xl bg-[#200615] border border-[#c5a059]/40 p-4 sm:p-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[#c5a059]/5 rounded-full blur-3xl pointer-events-none" />
         
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative z-10">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
+            <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full bg-[#ea580c] animate-pulse" />
-              <span className="text-[10px] uppercase tracking-[0.35em] font-sans text-[#ea580c] font-medium">
-                Cherish Concierge &bull; Squad Decision
+              <span className="text-[10px] uppercase tracking-[0.25em] text-[#c5a059] font-medium">
+                Cherish Squad Concierge
               </span>
             </div>
-            <h2 className="font-serif-lux text-3xl sm:text-4xl font-light italic text-[#f5f2ed] tracking-tight">
+            <h2 className="font-serif-lux text-2xl sm:text-3xl font-light italic text-[#f5f2ed] tracking-tight">
               CBD Lunch Collective
             </h2>
-            <p className="text-xs text-[#f5f2ed]/60 font-sans tracking-wide mt-1">
-              Private single-person consensus &bull; Zero awkward coordination.
+            <p className="text-xs text-[#f5f2ed]/60 tracking-wide mt-0.5">
+              Private individual consensus &bull; Zero awkward lunch chats
             </p>
           </div>
 
-          {/* Simple Group Status Pill */}
-          <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl glass bg-white/[0.04] border border-white/10 shrink-0">
-            <Clock className="w-4 h-4 text-[#ea580c]" />
-            <div className="text-right font-sans">
-              <div className="text-[9px] text-[#ea580c] uppercase tracking-[0.2em] font-medium">
-                {decisionState === 'pending' ? 'Decision Window' : 'Status'}
-              </div>
-              <div className="text-xs font-light text-[#f5f2ed]">
-                {decisionState === 'pending' ? 'Active &bull; Closes in 18m' : 'Consensus Settled'}
-              </div>
+          {/* Location & Transport Context Badges */}
+          <div className="flex flex-wrap items-center gap-2 sm:self-auto self-stretch">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#2b081c] border border-white/10 text-xs">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#c5a059] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#c5a059]"></span>
+              </span>
+              <span className="text-[#c5a059] text-[11px] font-medium">
+                📍 {activeLocation.shortName || activeLocation.name}
+              </span>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* =========================================================================
-          LOCATION & TRANSPORT MODE CONTEXT
-          Considers walking vs driving and user's current Singapore hub
-          ========================================================================= */}
-      <div className="rounded-2xl glass bg-white/[0.02] border border-white/10 p-4 sm:p-5 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-sans">
-          
-          {/* User Starting Location */}
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-[#ea580c] shrink-0" />
-            <span className="text-[10px] uppercase tracking-wider text-[#f5f2ed]/60">Starting Point:</span>
-            <div className="relative inline-block">
-              <select
-                id="select-user-location"
-                value={currentLocation.id}
-                onChange={(e) => {
-                  const found = POPULAR_SINGAPORE_LOCATIONS.find(l => l.id === e.target.value);
-                  if (found) setCurrentLocation(found);
-                }}
-                className="bg-[#2d0b1b] border border-white/20 text-[#f5f2ed] text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-[#ea580c] font-sans appearance-none pr-7 cursor-pointer"
+            <div className="flex items-center gap-0.5 p-0.5 rounded-xl bg-[#2b081c] border border-white/10 text-[11px]">
+              <button
+                onClick={() => updateTransportMode('walking')}
+                className={`px-2 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTransportMode === 'walking'
+                    ? 'bg-[#c5a059] text-black font-semibold shadow-sm'
+                    : 'text-[#f5f2ed]/60 hover:text-white'
+                }`}
               >
-                {POPULAR_SINGAPORE_LOCATIONS.map(loc => (
-                  <option key={loc.id} value={loc.id} className="bg-[#1a050d] text-[#f5f2ed]">
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-[#ea580c]">
-                <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-              </div>
+                🚶 Walk
+              </button>
+              <button
+                onClick={() => updateTransportMode('driving')}
+                className={`px-2 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                  activeTransportMode === 'driving'
+                    ? 'bg-[#c5a059] text-black font-semibold shadow-sm'
+                    : 'text-[#f5f2ed]/60 hover:text-white'
+                }`}
+              >
+                🚗 Drive
+              </button>
             </div>
-
-            <button
-              onClick={handleDetectGPS}
-              disabled={isLocating}
-              title="Detect nearest Singapore lunch hub"
-              className="p-1.5 rounded-lg glass border border-white/10 hover:border-[#ea580c]/60 text-[#f5f2ed]/70 hover:text-[#ea580c] transition-colors"
-            >
-              <Navigation className={`w-3.5 h-3.5 ${isLocating ? 'animate-spin text-[#ea580c]' : ''}`} />
-            </button>
           </div>
-
-          {/* Transport Mode Toggle: Walking vs Driving */}
-          <div className="flex items-center gap-1.5 glass bg-black/30 p-1 rounded-xl border border-white/10">
-            <button
-              id="btn-mode-walking"
-              onClick={() => setTransportMode('walking')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-sans transition-all cursor-pointer ${
-                transportMode === 'walking'
-                  ? 'bg-[#ea580c] text-white shadow-sm font-medium'
-                  : 'text-[#f5f2ed]/60 hover:text-[#f5f2ed]'
-              }`}
-            >
-              <Footprints className="w-3.5 h-3.5" />
-              <span>Walking</span>
-            </button>
-
-            <button
-              id="btn-mode-driving"
-              onClick={() => setTransportMode('driving')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-sans transition-all cursor-pointer ${
-                transportMode === 'driving'
-                  ? 'bg-[#ea580c] text-white shadow-sm font-medium'
-                  : 'text-[#f5f2ed]/60 hover:text-[#f5f2ed]'
-              }`}
-            >
-              <Car className="w-3.5 h-3.5" />
-              <span>Driving / Grab</span>
-            </button>
-          </div>
-
         </div>
 
-        {/* Dynamic Route Context Note */}
-        <div className="text-[11px] font-sans text-[#f5f2ed]/65 flex items-center gap-2 pt-1 border-t border-white/5">
-          <Info className="w-3.5 h-3.5 text-[#ea580c] shrink-0" />
-          <span>
-            {transportMode === 'walking' 
-              ? `Walking radius calibrated from ${currentLocation.shortName} &bull; Sheltered MRT walkways prioritized`
-              : `Driving radius calibrated from ${currentLocation.shortName} &bull; Parking garages & URA surface lots mapped`}
-          </span>
+        {/* 1-GLANCE 4-STEP SQUAD PROGRESS STEPPER */}
+        <div className="mt-4 pt-3 border-t border-white/10">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 rounded-2xl bg-[#15040d] border border-white/10 text-xs font-medium">
+            <button
+              id="step-squad-pick"
+              onClick={() => { setDecisionState('pending'); setSquadPhase('pick'); }}
+              className={`py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                decisionState === 'pending' && squadPhase === 'pick'
+                  ? 'bg-gradient-to-r from-[#edd49a] via-[#c5a059] to-[#a3792b] text-black font-semibold shadow-md'
+                  : 'text-[#f5f2ed]/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span className="w-4 h-4 rounded-full bg-black/20 text-[10px] flex items-center justify-center font-bold">1</span>
+              <span className="truncate">Your Craving</span>
+            </button>
+
+            <button
+              id="step-squad-waiting"
+              onClick={() => { setDecisionState('pending'); setSquadPhase('waiting'); }}
+              className={`py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                decisionState === 'pending' && squadPhase === 'waiting'
+                  ? 'bg-gradient-to-r from-[#edd49a] via-[#c5a059] to-[#a3792b] text-black font-semibold shadow-md'
+                  : 'text-[#f5f2ed]/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span className="w-4 h-4 rounded-full bg-black/20 text-[10px] flex items-center justify-center font-bold">2</span>
+              <span className="truncate">Squad Odds</span>
+            </button>
+
+            <button
+              id="step-squad-voting"
+              onClick={() => { setDecisionState('pending'); setSquadPhase('voting_view'); }}
+              className={`py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                decisionState === 'pending' && squadPhase === 'voting_view'
+                  ? 'bg-gradient-to-r from-[#edd49a] via-[#c5a059] to-[#a3792b] text-black font-semibold shadow-md'
+                  : 'text-[#f5f2ed]/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span className="w-4 h-4 rounded-full bg-black/20 text-[10px] flex items-center justify-center font-bold">3</span>
+              <span className="truncate">Live Tally</span>
+            </button>
+
+            <button
+              id="step-squad-settled"
+              onClick={handleSettleGroupDecision}
+              className={`py-2 px-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                decisionState === 'settled'
+                  ? 'bg-gradient-to-r from-[#edd49a] via-[#c5a059] to-[#a3792b] text-black font-semibold shadow-md'
+                  : 'text-[#f5f2ed]/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span className="w-4 h-4 rounded-full bg-black/20 text-[10px] flex items-center justify-center font-bold">4</span>
+              <span className="truncate">Settled Venue</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* =========================================================================
           STATE 1: WAITING ON THE GROUP (PENDING)
-          Single-person POV: User inputs their craving privately with a single tap.
-          A clean status indicates that group decision is pending (no names, no other choices).
+          Multi-Step Flow: 
+          1. 'pick': Select and confirm pick
+          2. 'waiting': Leaves user hanging with gambling/casino excitement, odds board, slot machine
+          3. 'voting_view': Detailed heatmap and tally with settle button
           ========================================================================= */}
       {decisionState === 'pending' && (
         <div className="space-y-6 animate-fadeIn" id="state-pending">
           
-          {/* Private Craving Input Card */}
-          <div className="rounded-3xl glass bg-white/[0.03] border border-white/15 p-6 sm:p-8 glow space-y-5">
-            
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-4">
-              <div>
-                <div className="flex items-center gap-2 text-[#ea580c] text-xs font-sans mb-1">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span className="uppercase tracking-[0.25em] font-medium">Your Private Input</span>
+          {/* STEP 1: PICK & CONFIRM PICK */}
+          {squadPhase === 'pick' && (
+            <div className="rounded-3xl bg-[#190510] border border-white/20 p-6 sm:p-8 shadow-2xl space-y-6">
+              
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2 text-[#c5a059] text-xs font-sans mb-1">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span className="uppercase tracking-[0.25em] font-medium">Private Pick</span>
+                  </div>
+                  <h3 className="font-serif-lux text-2xl sm:text-3xl font-light italic text-[#f5f2ed]">
+                    Pick Your Craving 🍜
+                  </h3>
                 </div>
-                <h3 className="font-serif-lux text-2xl sm:text-3xl font-light italic text-[#f5f2ed]">
-                  What are you craving for lunch today?
-                </h3>
+
+                <div className="flex items-center gap-1.5 text-[11px] text-[#f5f2ed]/70 font-sans italic bg-[#250717] px-3 py-1.5 rounded-full border border-white/10 self-start sm:self-auto">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#8ce2ad]" />
+                  <span>Confidential &bull; Not leaked to group</span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-1.5 text-[11px] text-[#f5f2ed]/50 font-sans italic bg-white/5 px-3 py-1.5 rounded-full border border-white/5 self-start sm:self-auto">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#8ce2ad]" />
-                <span>100% Confidential &bull; Not shown to squad</span>
-              </div>
-            </div>
-
-            {/* Quick Single-Tap Chips (No Form) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="private-craving-chips">
-              {CRAVING_CHIPS.map(chip => {
-                const isSelected = privateCraving === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    id={`chip-craving-${chip.id}`}
-                    onClick={() => handleSelectPrivateCraving(chip.id)}
-                    className={`flex items-start gap-3 p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'glass bg-gradient-to-br from-[#ea580c]/25 to-[#4a0e2e]/40 border-[#ea580c] text-[#f5f2ed] glow shadow-lg ring-1 ring-[#ea580c]/50'
-                        : 'glass bg-white/[0.02] border-white/10 text-[#f5f2ed]/70 hover:border-[#ea580c]/50 hover:bg-white/[0.05] hover:text-[#f5f2ed]'
-                    }`}
-                  >
-                    <div className={`p-2 rounded-xl border shrink-0 mt-0.5 ${
-                      isSelected 
-                        ? 'bg-[#ea580c]/30 border-[#ea580c]/50' 
-                        : 'bg-white/5 border-white/10'
-                    }`}>
-                      {chip.icon}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-sans font-medium text-[#f5f2ed]">
-                          {chip.label}
-                        </span>
-                        {isSelected && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#ea580c]" />
-                        )}
+              {/* Quick Single-Tap Chips */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="private-craving-chips">
+                {CRAVING_CHIPS.map(chip => {
+                  const isSelected = privateCraving === chip.id;
+                  return (
+                    <button
+                      key={chip.id}
+                      id={`chip-craving-${chip.id}`}
+                      onClick={() => handleSelectPrivateCraving(chip.id)}
+                      className={`flex items-start gap-3 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#3b0d24] border-[#c5a059] text-[#f5f2ed] shadow-lg ring-1 ring-[#c5a059]/50'
+                          : 'bg-[#250717] border-white/15 text-[#f5f2ed]/80 hover:border-[#c5a059]/60 hover:bg-[#320a20] hover:text-[#f5f2ed]'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-xl border shrink-0 mt-0.5 ${
+                        isSelected 
+                          ? 'bg-[#c5a059]/30 border-[#c5a059]/60' 
+                          : 'bg-black/30 border-white/10'
+                      }`}>
+                        {chip.icon}
                       </div>
-                      <span className="text-[11px] font-sans text-[#f5f2ed]/50 block mt-0.5 truncate">
-                        {chip.sublabel}
-                      </span>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs sm:text-sm font-sans font-medium text-[#f5f2ed]">
+                            {chip.label}
+                          </span>
+                          {isSelected && (
+                            <CheckCircle2 className="w-4 h-4 text-[#c5a059]" />
+                          )}
+                        </div>
+                        <span className="text-[11px] font-sans text-[#f5f2ed]/60 block mt-0.5 truncate">
+                          {chip.sublabel}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Confirm Pick Action Bar */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#250717] border border-[#c5a059]/40 flex flex-col sm:flex-row items-center justify-between gap-4 font-sans">
+                <div>
+                  <div className="text-xs text-[#f5f2ed]">
+                    Selected Craving: <strong className="text-[#c5a059] font-semibold">{CRAVING_CHIPS.find(c => c.id === privateCraving)?.label}</strong>
+                  </div>
+                  <div className="text-[10px] text-[#f5f2ed]/60 mt-0.5">
+                    Locking this in places your vote into the squad pot.
+                  </div>
+                </div>
+
+                <button
+                  id="btn-confirm-pick"
+                  onClick={handleConfirmPick}
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#c5a059] hover:bg-[#b58f48] text-black text-xs uppercase tracking-wider font-semibold glow shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Confirm Pick &amp; Lock Craving 🔒</span>
+                </button>
+              </div>
+
+            </div>
+          )}
+
+          {/* STEP 2: LEAVE USER HANGING & GAMBLING EXCITEMENT */}
+          {squadPhase === 'waiting' && (
+            <div className="space-y-5 animate-fadeIn" id="squad-waiting-screen">
+              
+              {/* Status Header: Leaving user hanging */}
+              <div className="rounded-3xl bg-[#1d0513] border border-[#c5a059]/60 p-6 sm:p-8 shadow-2xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-[#c5a059] text-xs font-sans mb-1">
+                      <span className="w-2 h-2 rounded-full bg-[#c5a059] animate-ping" />
+                      <span className="uppercase tracking-[0.25em] font-medium">Squad Pot In Play</span>
                     </div>
+                    <h3 className="font-serif-lux text-2xl sm:text-3xl md:text-4xl font-light italic text-[#f5f2ed]">
+                      Waiting for Group Picking... ⏳
+                    </h3>
+                    <p className="text-xs text-[#f5f2ed]/80 font-sans mt-1">
+                      Your craving is locked in! 3 of 5 friends have placed their meal choices. The consensus pot is heating up.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                    <button
+                      onClick={() => setSquadPhase('pick')}
+                      className="px-3 py-2 rounded-xl bg-[#250717] border border-white/20 hover:border-white/40 text-[11px] text-[#f5f2ed]/70 hover:text-white transition-all font-sans cursor-pointer"
+                    >
+                      Change Pick ↩️
+                    </button>
+
+                    {/* REDIRECT BUTTON TO VIEW GROUP VOTING */}
+                    <button
+                      id="btn-redirect-view-voting"
+                      onClick={() => setSquadPhase('voting_view')}
+                      className="px-4 py-2.5 rounded-xl bg-[#c5a059] hover:bg-[#b58f48] text-xs text-black font-sans font-semibold flex items-center gap-1.5 cursor-pointer shadow-lg transition-all active:scale-95"
+                    >
+                      <span>🗳️ View Group Voting</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-black" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Progress Bar of Pending Votes */}
+                <div className="space-y-1.5 pt-2 border-t border-white/10 font-sans">
+                  <div className="flex items-center justify-between text-xs text-[#f5f2ed]/80">
+                    <span>Group Quorum</span>
+                    <span className="text-[#c5a059] font-semibold">3 of 5 Locked In (60%)</span>
+                  </div>
+                  <div className="w-full h-2.5 rounded-full bg-black/40 overflow-hidden border border-white/10">
+                    <div className="h-full bg-gradient-to-r from-[#ea580c] via-[#f97316] to-[#c5a059] w-[60%] rounded-full animate-pulse" />
+                  </div>
+                </div>
+
+                {/* Subtle decision nudge */}
+                <div className="pt-1 flex items-center gap-2 text-[11px] text-[#f5f2ed]/70 font-sans">
+                  <Zap className="w-3.5 h-3.5 text-[#c5a059] shrink-0" />
+                  <span>Consensus Tip: Locking choices before hunger peaks prevents the group from defaulting to oily fast-food compromises.</span>
+                </div>
+              </div>
+
+              {/* GAMBLING ELEMENT 1: LIVE CRAVING ODDS & LEANING TOTE BOARD */}
+              <div className="rounded-3xl bg-[#190510] border border-white/20 p-5 sm:p-7 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🎲</span>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.25em] font-sans text-[#c5a059] font-bold">
+                        Live Sportsbook Odds
+                      </div>
+                      <h4 className="font-serif-lux text-xl sm:text-2xl font-light italic text-[#f5f2ed]">
+                        Where the Squad is Leaning 🔥
+                      </h4>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] uppercase tracking-wider font-mono animate-pulse">
+                    Live Tote
+                  </span>
+                </div>
+
+                {/* Leaning Odds Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-sans">
+                  {/* #1 Hot Favorite */}
+                  <div className="p-3.5 rounded-2xl bg-[#3b0d24] border border-[#c5a059] shadow-lg relative overflow-hidden">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-[#c5a059] text-black">
+                        🔥 Heavy Favorite
+                      </span>
+                      <span className="font-mono text-xs text-[#f5f2ed] font-bold">1.8x Odds</span>
+                    </div>
+                    <div className="text-base font-semibold text-[#f5f2ed] flex items-center gap-1.5 mt-1">
+                      <span>🌶️</span>
+                      <span>Spicy Laksa / Mala</span>
+                    </div>
+                    <div className="text-[11px] text-[#f5f2ed]/70 mt-0.5">
+                      54% Squad Consensus Lean
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-black/40 mt-2.5 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-red-500 to-[#c5a059] w-[54%]" />
+                    </div>
+                    <p className="text-[10px] text-[#c5a059] italic mt-2">
+                      &bull; 2 lunchmates placed hot bets on fiery sambal!
+                    </p>
+                  </div>
+
+                  {/* #2 Challenger */}
+                  <div className="p-3.5 rounded-2xl bg-[#250717] border border-white/15">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] uppercase font-medium tracking-wider px-2 py-0.5 rounded bg-white/10 text-white/90">
+                        📈 Challenger
+                      </span>
+                      <span className="font-mono text-xs text-[#c5a059] font-bold">3.2x Odds</span>
+                    </div>
+                    <div className="text-base font-semibold text-[#f5f2ed] flex items-center gap-1.5 mt-1">
+                      <span>🥟</span>
+                      <span>Wok Char Noodles</span>
+                    </div>
+                    <div className="text-[11px] text-[#f5f2ed]/70 mt-0.5">
+                      32% Squad Consensus Lean
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-black/40 mt-2.5 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-amber-500 to-[#c5a059] w-[32%]" />
+                    </div>
+                    <p className="text-[10px] text-[#f5f2ed]/60 italic mt-2">
+                      &bull; High heat momentum in CBD crowd
+                    </p>
+                  </div>
+
+                  {/* #3 Underdog */}
+                  <div className="p-3.5 rounded-2xl bg-[#250717] border border-white/15">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] uppercase font-medium tracking-wider px-2 py-0.5 rounded bg-white/10 text-white/90">
+                        🧊 Underdog
+                      </span>
+                      <span className="font-mono text-xs text-[#8ce2ad] font-bold">7.2x Odds</span>
+                    </div>
+                    <div className="text-base font-semibold text-[#f5f2ed] flex items-center gap-1.5 mt-1">
+                      <span>🥗</span>
+                      <span>Clean Fish Broth</span>
+                    </div>
+                    <div className="text-[11px] text-[#f5f2ed]/70 mt-0.5">
+                      14% Squad Consensus Lean
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-black/40 mt-2.5 overflow-hidden">
+                      <div className="h-full bg-[#8ce2ad] w-[14%]" />
+                    </div>
+                    <p className="text-[10px] text-[#f5f2ed]/60 italic mt-2">
+                      &bull; Dark horse healthy compromise
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live ticker bar */}
+                <div className="p-3 rounded-xl bg-[#230716] border border-white/10 flex items-center gap-2 text-xs font-sans text-[#f5f2ed]/80">
+                  <Flame className="w-4 h-4 text-[#c5a059] shrink-0 animate-bounce" />
+                  <span className="truncate">
+                    <strong className="text-[#f5f2ed]">Consensus Forecast:</strong> Squad has an 86% probability of settling near Amoy / Maxwell Food Centre.
+                  </span>
+                </div>
+              </div>
+
+              {/* GAMBLING ELEMENT 2: INTERACTIVE CRAVING SLOT MACHINE */}
+              <div className="rounded-3xl bg-gradient-to-br from-[#190510] via-[#28081a] to-[#190510] border border-[#c5a059]/60 p-6 sm:p-7 space-y-4 shadow-2xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🎰</span>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.25em] font-sans text-[#c5a059] font-bold">
+                        Casino Mini-Game
+                      </div>
+                      <h4 className="font-serif-lux text-xl sm:text-2xl font-light italic text-[#f5f2ed]">
+                        Craving Roulette Slots 🎰
+                      </h4>
+                    </div>
+                  </div>
+                  <span className="text-xs font-sans text-[#f5f2ed]/70">
+                    Pull the lever while waiting on friends!
+                  </span>
+                </div>
+
+                {/* 3-Reel Slot Box */}
+                <div className="flex items-center justify-center gap-3 sm:gap-6 py-4">
+                  {slotReels.map((icon, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-20 sm:w-28 h-24 sm:h-32 rounded-2xl border flex items-center justify-center text-4xl sm:text-5xl shadow-[inset_0_2px_10px_rgba(0,0,0,0.8)] transition-all ${
+                        isSpinning 
+                          ? 'animate-pulse scale-95 border-amber-400 bg-black/90' 
+                          : 'border-[#c5a059]/70 bg-[#16040d]'
+                      }`}
+                    >
+                      <span className={isSpinning ? 'blur-[1px]' : ''}>{icon}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Jackpot / Spin result banner */}
+                {slotJackpot && (
+                  <div className="p-3 rounded-xl bg-[#c5a059]/20 border border-[#c5a059] text-center text-xs font-sans text-[#f5f2ed] font-medium animate-fadeIn">
+                    {slotJackpot}
+                  </div>
+                )}
+
+                {/* Action Buttons: Spin & Nudge */}
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2 font-sans">
+                  <button
+                    id="btn-spin-slots"
+                    onClick={handleSpinSlots}
+                    disabled={isSpinning}
+                    className="w-full sm:w-auto px-7 py-3 rounded-2xl bg-gradient-to-r from-[#c5a059] to-[#e28448] text-black font-bold text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>🎲 {isSpinning ? 'Spinning Reels... 🎰' : 'Spin Craving Slots 🎰'}</span>
+                    {spinCount > 0 && <span className="text-[10px] font-mono bg-black/30 text-white px-2 py-0.5 rounded-full">{spinCount}</span>}
                   </button>
-                );
-              })}
-            </div>
 
-            {/* Private Preference Summary Strip */}
-            <div className="p-3.5 rounded-xl glass bg-[#4a0e2e]/25 border border-[#ea580c]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs font-sans">
-              <div className="flex items-center gap-2 text-[#f5f2ed]/80">
-                <span className="text-[#ea580c] font-medium">Your Diet Profile:</span>
-                <span>{userDiet} &bull; Target {userBudget} tier</span>
-              </div>
-              <span className="text-[10px] text-[#f5f2ed]/45 italic">
-                Cherish Concierge will match this quietly to the final venue
-              </span>
-            </div>
+                  <button
+                    id="btn-nudge-hurry"
+                    onClick={() => handleSendNudge('hurry')}
+                    className="w-full sm:w-auto px-4 py-3 rounded-2xl bg-[#250717] border border-white/20 hover:border-[#c5a059] text-xs text-[#f5f2ed] flex items-center justify-center gap-2 cursor-pointer transition-all hover:bg-[#340a20]"
+                  >
+                    <span>⚡ Nudge Slow Friends</span>
+                  </button>
 
-          </div>
+                  <button
+                    id="btn-double-down"
+                    onClick={() => handleSendNudge('double_down')}
+                    className="w-full sm:w-auto px-4 py-3 rounded-2xl bg-[#250717] border border-[#c5a059]/50 hover:border-[#c5a059] text-xs text-[#c5a059] flex items-center justify-center gap-2 cursor-pointer transition-all hover:bg-[#340a20]"
+                  >
+                    <span>💰 Double Down My Bet</span>
+                  </button>
+                </div>
 
-          {/* Simple Group Status Card (No per-member detail, no names, no other people's choices) */}
-          <div className="rounded-3xl glass bg-white/[0.02] border border-white/10 p-6 sm:p-7 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="text-[10px] uppercase font-sans tracking-[0.25em] text-[#ea580c] font-medium block mb-1">
-                  Squad Poll Status
-                </span>
-                <h4 className="font-serif-lux text-xl sm:text-2xl font-light italic text-[#f5f2ed]">
-                  Decision pending &bull; Aggregating lunch consensus
-                </h4>
-                <p className="text-xs text-[#f5f2ed]/60 font-sans mt-1">
-                  Your private craving is locked in. The squad will settle on a single destination shortly.
-                </p>
+                {nudgeStatus && (
+                  <div className="p-2.5 rounded-xl bg-[#c5a059]/20 border border-[#c5a059]/50 text-center text-xs font-sans text-[#f5f2ed] animate-fadeIn">
+                    {nudgeStatus}
+                  </div>
+                )}
               </div>
 
-              {/* Action Button: Fast-track group pick */}
-              <button
-                id="btn-fast-track-squad"
-                onClick={handleSettleGroupDecision}
-                className="px-5 py-3 rounded-2xl glass bg-[#ea580c] hover:bg-[#d94e07] text-white text-xs font-sans uppercase tracking-wider font-medium glow shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2 shrink-0"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Settle Group Decision Now</span>
-              </button>
             </div>
+          )}
 
-            {/* Clean Progress Indicator (No names or leaked choices) */}
-            <div className="space-y-1.5 pt-2 border-t border-white/5">
-              <div className="flex items-center justify-between text-[11px] font-sans text-[#f5f2ed]/60">
-                <span>Consensus status</span>
-                <span className="text-[#ea580c] font-medium">4 of 5 members accounted for</span>
+          {/* STEP 3: VIEW GROUP VOTING SCREEN */}
+          {squadPhase === 'voting_view' && (
+            <div className="rounded-3xl glass bg-white/[0.03] border border-white/15 p-6 sm:p-8 glow space-y-6 animate-fadeIn" id="squad-voting-view">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2 text-[#c5a059] text-xs font-sans mb-1">
+                    <span className="uppercase tracking-[0.25em] font-medium">Consensus Heatmap</span>
+                  </div>
+                  <h3 className="font-serif-lux text-2xl sm:text-3xl font-light italic text-[#f5f2ed]">
+                    Group Voting Heatmap 🗳️
+                  </h3>
+                  <p className="text-xs text-[#f5f2ed]/60 font-sans mt-0.5">
+                    Live tally of current member submissions while awaiting full quorum.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSquadPhase('waiting')}
+                    className="px-3.5 py-2 rounded-xl glass border border-white/15 hover:border-white/30 text-xs text-[#f5f2ed]/80 hover:text-white transition-all font-sans cursor-pointer"
+                  >
+                    &larr; Back to Waiting &amp; Slots 🎰
+                  </button>
+
+                  <button
+                    id="btn-settle-group-now"
+                    onClick={handleSettleGroupDecision}
+                    className="px-5 py-2 rounded-xl glass bg-[#ea580c] hover:bg-[#d94e07] text-white text-xs uppercase tracking-wider font-semibold glow shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Settle Consensus Now</span>
+                  </button>
+                </div>
               </div>
-              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-[#ea580c] to-[#f97316] w-[80%] rounded-full" />
+
+              {/* Anonymous Member Token Status */}
+              <div className="space-y-3 font-sans">
+                <div className="text-xs uppercase tracking-wider text-[#c5a059] font-medium">
+                  Member Pick Status (Anonymous Tokens)
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3.5 rounded-xl glass border border-[#ea580c]/50 bg-[#ea580c]/10 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-[#ea580c] text-white font-bold flex items-center justify-center text-xs">
+                        You
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-[#f5f2ed]">
+                          {CRAVING_CHIPS.find(c => c.id === privateCraving)?.label}
+                        </div>
+                        <div className="text-[10px] text-[#f5f2ed]/50">Your Confidential Pick</div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-medium">
+                      Locked In 🔒
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl glass border border-white/10 bg-white/[0.02] flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-white/15 text-white font-bold flex items-center justify-center text-xs">
+                        M2
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-[#f5f2ed]">🌶️ Spicy &amp; Fiery</div>
+                        <div className="text-[10px] text-[#f5f2ed]/50">Lunchmate 2</div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-medium">
+                      Locked In 🔒
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl glass border border-white/10 bg-white/[0.02] flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-white/15 text-white font-bold flex items-center justify-center text-xs">
+                        M3
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-[#f5f2ed]">🥟 Smoky Wok Char</div>
+                        <div className="text-[10px] text-[#f5f2ed]/50">Lunchmate 3</div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-medium">
+                      Locked In 🔒
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl glass border border-white/10 bg-white/[0.01] flex items-center justify-between opacity-70">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-white/10 text-white/50 font-bold flex items-center justify-center text-xs">
+                        M4
+                      </div>
+                      <div>
+                        <div className="text-xs text-[#f5f2ed]/70">⏳ Deliberating...</div>
+                        <div className="text-[10px] text-[#f5f2ed]/40">Lunchmate 4</div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-medium animate-pulse">
+                      Pending
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl glass border border-white/10 bg-white/[0.01] flex items-center justify-between opacity-70">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-white/10 text-white/50 font-bold flex items-center justify-center text-xs">
+                        M5
+                      </div>
+                      <div>
+                        <div className="text-xs text-[#f5f2ed]/70">⏳ Deliberating...</div>
+                        <div className="text-[10px] text-[#f5f2ed]/40">Lunchmate 5</div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-medium animate-pulse">
+                      Pending
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Settle early notice */}
+              <div className="p-4 rounded-xl glass bg-white/[0.02] border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-sans text-[#f5f2ed]/70">
+                <span>Want to skip waiting for remaining members and settle immediately?</span>
+                <button
+                  onClick={handleSettleGroupDecision}
+                  className="text-xs text-[#c5a059] font-medium underline hover:text-white cursor-pointer"
+                >
+                  Finalize Consensus Now &rarr;
+                </button>
               </div>
             </div>
-
-          </div>
+          )}
 
         </div>
       )}
@@ -509,7 +942,7 @@ export const SquadView: React.FC<SquadViewProps> = ({
                   <span className="px-2 py-0.5 rounded-md bg-[#ea580c]/20 border border-[#ea580c]/40 text-[#ea580c] font-medium text-[11px]">
                     {travelEstimate.durationDisplay} ({travelEstimate.distanceDisplay})
                   </span>
-                  <span className="text-[#f5f2ed]/80">from {currentLocation.shortName}</span>
+                  <span className="text-[#f5f2ed]/80">from {activeLocation.shortName}</span>
                 </div>
                 <p className="text-[11px] text-[#f5f2ed]/60">
                   {travelEstimate.routeTip}
@@ -524,7 +957,7 @@ export const SquadView: React.FC<SquadViewProps> = ({
                 className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl glass bg-[#ea580c] hover:bg-[#d94e07] text-white font-medium text-xs shadow-md transition-all shrink-0 cursor-pointer"
               >
                 <Navigation className="w-3.5 h-3.5" />
-                <span>Open in Maps ({transportMode === 'walking' ? 'Walk' : 'Drive'})</span>
+                <span>Open in Maps ({activeTransportMode === 'walking' ? 'Walk' : 'Drive'})</span>
                 <ExternalLink className="w-3 h-3 opacity-70" />
               </a>
 
@@ -669,7 +1102,7 @@ export const SquadView: React.FC<SquadViewProps> = ({
                   Ready to go with the squad? Or not feeling this dish today?
                 </div>
 
-                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
                   <a
                     href={travelEstimate.googleMapsUrl}
                     target="_blank"
@@ -678,6 +1111,15 @@ export const SquadView: React.FC<SquadViewProps> = ({
                   >
                     Go with Squad
                   </a>
+
+                  {onOpenLogMeal && (
+                    <button
+                      onClick={onOpenLogMeal}
+                      className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl glass bg-[#c5a059] hover:bg-[#b08b45] text-black text-xs font-sans uppercase tracking-wider font-semibold shadow-md transition-all text-center cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <span>Log Meal 📸</span>
+                    </button>
+                  )}
 
                   <button
                     id="btn-squad-individual-reject"

@@ -6,7 +6,10 @@ import {
   PersonalizedNote,
   CookRecipe,
   Squad,
-  SquadMember
+  SquadMember,
+  DualChoiceComparison,
+  EnergyNudge,
+  QuickDecision
 } from '../types';
 import { SINGAPORE_HAWKER_DATABASE } from '../data/hawkerData';
 import { 
@@ -16,24 +19,78 @@ import {
   POPULAR_SINGAPORE_LOCATIONS 
 } from '../data/locationService';
 
+export interface RecommendParams {
+  mood?: Mood;
+  fastLaneQuery?: string;
+  previousRejectedIds?: string[];
+  lastRejectionReason?: RejectionReason;
+  rejectionCount?: number;
+  userDiet?: string;
+  userBudget?: string;
+  userPriorities?: string[];
+  userLocation?: UserLocation;
+  transportMode?: TransportMode;
+  timeOfDay?: string;
+  venueTypePreference?: 'cafe' | 'hawker' | 'restaurant';
+  lat?: number;
+  lng?: number;
+  weatherSummary?: string;
+}
+
 export class KaleService {
   /**
    * Generates a single thoughtful recommendation based on mood, location, and user priorities
-   * Ultra-fast execution (sub-250ms) to completely eliminate decision fatigue and waiting anxiety.
+   * Ultra-fast execution with server Gemini AI or local curated fallback.
    */
-  static async getRecommendation(params: {
-    mood?: Mood;
-    fastLaneQuery?: string;
-    previousRejectedIds?: string[];
-    lastRejectionReason?: RejectionReason;
-    rejectionCount?: number;
-    userDiet?: string;
-    userBudget?: string;
-    userPriorities?: string[];
-    userLocation?: UserLocation;
-    transportMode?: TransportMode;
-    timeOfDay?: string;
-  }): Promise<KaleRecommendation> {
+  static async getRecommendation(params: RecommendParams): Promise<KaleRecommendation> {
+    let weatherSummary: string | undefined = params.weatherSummary;
+    if (!weatherSummary && params.lat != null && params.lng != null) {
+      try {
+        const w = await fetch(`/api/weather?lat=${params.lat}&lng=${params.lng}`);
+        const wd = await w.json();
+        weatherSummary = wd.summary;
+      } catch { /* non-fatal */ }
+    }
+
+    try {
+      const res = await fetch('/api/kale/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, weatherSummary }),
+      });
+      const data = await res.json();
+
+      if (data && data.status !== 'fallback_to_local_curated' && data.recommendation) {
+        return data.recommendation as KaleRecommendation;
+      }
+    } catch {
+      // non-fatal fallback
+    }
+
+    return this.localFallback(params);
+  }
+
+  static async getQuickDecision(question: string): Promise<QuickDecision> {
+    const res = await fetch('/api/decide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+    return res.json();
+  }
+
+  static getCurrentPosition(): Promise<{ lat: number; lng: number } | null> {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { timeout: 5000 }
+      );
+    });
+  }
+
+  private static async localFallback(params: RecommendParams): Promise<KaleRecommendation> {
     const rejectionCount = params.rejectionCount || 0;
     const previousRejected = new Set(params.previousRejectedIds || []);
     const diet = params.userDiet || 'Balanced, High-Protein';
@@ -41,6 +98,7 @@ export class KaleService {
     const priorities = params.userPriorities || ['Health & Longevity', 'Calorie Control (<500 kcal)'];
     const userLoc = params.userLocation || POPULAR_SINGAPORE_LOCATIONS[0];
     const transportMode = params.transportMode || 'walking';
+    const venueTypePref = params.venueTypePreference || 'all';
 
     // Tactile micro-pause (~200ms) for silky UI transition without any perceived lag
     await new Promise(resolve => setTimeout(resolve, 200));
@@ -49,6 +107,15 @@ export class KaleService {
     let candidateOptions = SINGAPORE_HAWKER_DATABASE.filter(opt => !previousRejected.has(opt.id));
     if (candidateOptions.length === 0) {
       candidateOptions = [...SINGAPORE_HAWKER_DATABASE];
+    }
+
+    // Filter by Venue Type Preference (Hawker vs Restaurant)
+    if (venueTypePref === 'restaurant') {
+      const restaurants = candidateOptions.filter(opt => opt.venueType === 'restaurant');
+      if (restaurants.length > 0) candidateOptions = restaurants;
+    } else if (venueTypePref === 'hawker') {
+      const hawkers = candidateOptions.filter(opt => opt.venueType !== 'restaurant');
+      if (hawkers.length > 0) candidateOptions = hawkers;
     }
 
     // Fast-lane specific search
@@ -78,14 +145,48 @@ export class KaleService {
       }
     }
 
-    // If walking mode and no specific far search, prioritize venues within walking distance (<14 mins)
-    if (transportMode === 'walking' && !params.fastLaneQuery) {
-      const walkable = candidateOptions.filter(opt => {
+    // Venue preference filtering: cafe vs hawker vs restaurant
+    if (params.venueTypePreference === 'cafe') {
+      const cafes = candidateOptions.filter(opt => opt.venueType === 'cafe');
+      if (cafes.length > 0) candidateOptions = cafes;
+    } else if (params.venueTypePreference === 'restaurant') {
+      const restaurants = candidateOptions.filter(opt => opt.venueType === 'restaurant');
+      if (restaurants.length > 0) candidateOptions = restaurants;
+    } else if (params.venueTypePreference === 'hawker') {
+      const hawkers = candidateOptions.filter(opt => opt.venueType === 'hawker' || !opt.venueType);
+      if (hawkers.length > 0) candidateOptions = hawkers;
+    }
+
+    // Budget filtering (including new $$$$ $20 - $30+ tier)
+    if (budget === '$$$$') {
+      const premiumTiers = candidateOptions.filter(opt => 
+        opt.priceRange.includes('$$$$') || 
+        opt.priceRange.includes('$20') || 
+        opt.priceRange.includes('$22') ||
+        opt.priceRange.includes('$25')
+      );
+      if (premiumTiers.length > 0) candidateOptions = premiumTiers;
+    }
+
+    // STRICT WALKING DISTANCE REQUIREMENT:
+    // Must be within 10 to 20 min walking distance, strictly nowhere further than 20 minutes!
+    if (transportMode === 'walking') {
+      // 1. Hard ceiling: eliminate any spot further than 20 mins walk
+      const within20Mins = candidateOptions.filter(opt => {
         const est = calculateTravelEstimate(userLoc, opt, 'walking');
-        return est.durationMinutes <= 15;
+        return est.durationMinutes <= 20;
       });
-      if (walkable.length > 0) {
-        candidateOptions = walkable;
+      if (within20Mins.length > 0) {
+        candidateOptions = within20Mins;
+      }
+
+      // 2. Sweet spot: prioritize spots strictly between 10 to 20 minutes walk
+      const tenToTwentyMin = candidateOptions.filter(opt => {
+        const est = calculateTravelEstimate(userLoc, opt, 'walking');
+        return est.durationMinutes >= 10 && est.durationMinutes <= 20;
+      });
+      if (tenToTwentyMin.length > 0) {
+        candidateOptions = tenToTwentyMin;
       }
     }
 
@@ -138,6 +239,17 @@ export class KaleService {
       if (halalFriendly.length > 0) candidateOptions = halalFriendly;
     }
 
+    // Weather sensitivity: if rain, bias towards comfort soups & broths
+    const isRain = params.weatherSummary?.toLowerCase().includes('rain');
+    if (isRain) {
+      const soupComforts = candidateOptions.filter(opt => 
+        opt.tags.includes('comfort') || opt.dishHighlights.some(d => d.toLowerCase().includes('soup') || d.toLowerCase().includes('broth'))
+      );
+      if (soupComforts.length > 0) {
+        candidateOptions = soupComforts;
+      }
+    }
+
     const selectedOption = candidateOptions[0] || SINGAPORE_HAWKER_DATABASE[0];
 
     // Compute live travel estimate for the selected option from user location
@@ -149,17 +261,33 @@ export class KaleService {
     // Build deeply personalized private note strictly tailored to user's priorities, diet, and budget
     const personalNote = this.synthesizePersonalNote(selectedOption, diet, budget, priorities, params.mood);
 
+    // Synthesize subtle behavioral psychology energy nudge
+    const energyNudge = this.synthesizeEnergyNudge(selectedOption);
+
+    // Generate mischievous curiosity teaser
+    const curiosityTeasers = [
+      "Kale whispers: You might have planned a plain salad, but your soul deserves this Michelin-worthy bowl.",
+      "Warning: The hawker uncle never smiles, but this dish will cure your afternoon lethargy in three spoonfuls.",
+      "Kale's cheeky take: Pure discipline with a rebellious touch of wok hei. Zero food coma guaranteed.",
+      "Mischievous verdict: Skip the second-guessing—the aroma alone will validate this choice."
+    ];
+    const curiosityTeaser = curiosityTeasers[Math.floor(Math.random() * curiosityTeasers.length)];
+
     return {
       option: selectedOption,
       pro: proConOpinion.pro,
       con: proConOpinion.con,
       opinion: proConOpinion.opinion,
       personalNote,
+      curiosityTeaser,
+      mischiefNote: curiosityTeaser,
+      weatherAdvice: isRain ? 'Rainy weather comfort pick: warm sheltered broth' : undefined,
       rejectionCount,
       sourceType: params.fastLaneQuery ? 'fast_lane' : (params.mood ? 'mood' : 'mystery'),
       sourceQuery: params.fastLaneQuery,
       decisionPriority: priorities.join(' > '),
-      travelEstimate
+      travelEstimate,
+      energyNudge
     };
   }
 
@@ -401,5 +529,189 @@ export class KaleService {
     });
 
     return { settledPick, verdict, memberNotes };
+  }
+
+  /**
+   * Generates a subtle, non-nagging behavioral psychology energy forecast
+   * Focuses on immediate afternoon vitality & effortless micro-upgrades instead of guilt.
+   */
+  static synthesizeEnergyNudge(option: FoodOption): EnergyNudge {
+    const text = `${option.dishHighlights.join(' ')} ${option.cuisine} ${option.tags.join(' ')} ${option.healthScore}`.toLowerCase();
+
+    // Clean / broth / low-GI
+    if (text.includes('fish soup') || text.includes('clean') || text.includes('tea') || text.includes('popiah') || text.includes('yong tau foo') || text.includes('salad')) {
+      return {
+        slumpRiskLevel: 'low',
+        forecastLabel: '🟢 3 PM High Alertness Zone',
+        forecastDetail: 'Lean protein with gentle broth. Steady glucose release protects clear cognitive focus during afternoon meetings.',
+        counterHack: 'Ask for extra choy sum or bittergourd for micronutrient hydration.',
+        drinkPairingHack: 'Pair with warm water or Kopi-O Kosong (0g added sugar) for peak mental clarity.',
+        psychologyAngle: 'Immediate vitality dividend: your 3 PM self will thank your 12 PM self.'
+      };
+    }
+
+    // Heavy carbs / high oil / coconut milk
+    if (text.includes('laksa') || text.includes('char kway') || text.includes('hokkien mee') || text.includes('nasi lemak') || text.includes('biryani') || text.includes('fried')) {
+      return {
+        slumpRiskLevel: 'high',
+        forecastLabel: '🔴 3 PM Food Coma Advisory',
+        forecastDetail: 'Rich saturated fat and fast carbs induce post-prandial serotonin relaxation. Expect heavy eyelids by 2:45 PM.',
+        counterHack: 'Ask for "mai zhi" (sauce on the side) and do a brisk 5-min walk back to office to clear sluggishness.',
+        drinkPairingHack: 'Swap sugary drink for Teh-C Siew Dai or Sugar-Free Iced Oolong (-18g sugar, softens insulin spike).',
+        psychologyAngle: 'Effortless micro-hack: Keep 100% of the wok hei comfort while halving the afternoon crash.'
+      };
+    }
+
+    // Moderate / balanced
+    return {
+      slumpRiskLevel: 'moderate',
+      forecastLabel: '🟡 3 PM Balanced Vitality',
+      forecastDetail: 'Wholesome fuel with moderate digestive load. Keeps steady energy if paired with good hydration.',
+      counterHack: 'Ask for extra cucumber/greens and avoid drinking every drop of heavy salty broth.',
+      drinkPairingHack: 'Pair with Lime Juice or Green Tea Siew Dai for refreshing antioxidant balance.',
+      psychologyAngle: 'Balanced comfort without guilt—just pace your carbs and enjoy.'
+    };
+  }
+
+  /**
+   * Fast Lane: 2-Choice Deadlock Breaker
+   * Resolves dilemma between Choice A & Choice B using decision psychology, slump forecasting, and location heuristics.
+   */
+  static async resolveDualChoice(params: {
+    choiceA: string;
+    choiceB: string;
+    isCoinFlip?: boolean;
+    userLocation?: UserLocation;
+    transportMode?: TransportMode;
+    userDiet?: string;
+    userBudget?: string;
+    userPriorities?: string[];
+    venueTypePreference?: 'all' | 'hawker' | 'restaurant';
+  }): Promise<KaleRecommendation> {
+    const { choiceA, choiceB, isCoinFlip } = params;
+    const userLoc = params.userLocation || POPULAR_SINGAPORE_LOCATIONS[0];
+    const transportMode = params.transportMode || 'walking';
+    const diet = params.userDiet || 'No Restrictions';
+    const budget = params.userBudget || '$';
+    const priorities = params.userPriorities || ['Health & Longevity', 'Calorie Control (<500 kcal)'];
+    const venueType = params.venueTypePreference || 'all';
+
+    // Tactile micro-pause for smooth UI transition
+    await new Promise(resolve => setTimeout(resolve, 260));
+
+    const findOptionForQuery = (query: string): FoodOption => {
+      const q = query.toLowerCase().trim();
+      const pool = venueType === 'all' 
+        ? SINGAPORE_HAWKER_DATABASE 
+        : SINGAPORE_HAWKER_DATABASE.filter(o => o.venueType === venueType);
+      const activePool = pool.length > 0 ? pool : SINGAPORE_HAWKER_DATABASE;
+
+      const match = activePool.find(opt => 
+        opt.dishHighlights.some(d => d.toLowerCase().includes(q)) ||
+        opt.cuisine.toLowerCase().includes(q) ||
+        opt.stallName.toLowerCase().includes(q) ||
+        opt.tags.some(t => t.toLowerCase().includes(q))
+      );
+      return match || activePool[Math.floor(Math.random() * activePool.length)];
+    };
+
+    const optA = findOptionForQuery(choiceA);
+    const optB = findOptionForQuery(choiceB);
+
+    // Compute slump risk for both
+    const textA = `${choiceA} ${optA.dishHighlights.join(' ')} ${optA.tags.join(' ')}`.toLowerCase();
+    const textB = `${choiceB} ${optB.dishHighlights.join(' ')} ${optB.tags.join(' ')}`.toLowerCase();
+
+    const calcRisk = (txt: string) => {
+      if (txt.includes('fish soup') || txt.includes('clean') || txt.includes('popiah') || txt.includes('tea') || txt.includes('salad') || txt.includes('yong tau foo')) {
+        return { level: 'low' as const, percentage: 15, description: '15% slump risk: Light broth, clean protein, sustained 3 PM focus.' };
+      }
+      if (txt.includes('laksa') || txt.includes('char kway') || txt.includes('hokkien') || txt.includes('nasi lemak') || txt.includes('fried')) {
+        return { level: 'high' as const, percentage: 78, description: '78% slump risk: High carb/coconut spike triggering 2:45 PM food coma.' };
+      }
+      return { level: 'moderate' as const, percentage: 42, description: '42% slump risk: Wholesome comfort, steady energy burn.' };
+    };
+
+    const slumpRiskA = calcRisk(textA);
+    const slumpRiskB = calcRisk(textB);
+
+    let winner: 'A' | 'B' = 'A';
+    let verdictTitle = '';
+    let verdictReasoning = '';
+    let psychologyInsight = '';
+
+    if (isCoinFlip) {
+      const flip = Math.random() >= 0.5;
+      winner = flip ? 'A' : 'B';
+      const winnerName = winner === 'A' ? choiceA : choiceB;
+      const loserName = winner === 'A' ? choiceB : choiceA;
+      verdictTitle = `🪙 Coin Landed on ${winnerName}!`;
+      verdictReasoning = `Decision paralysis broken! The universe has spoken: go with ${winnerName}. Notice if you felt a secret twinge of relief or disappointment—that reveals your true subconscious craving.`;
+      psychologyInsight = `Psychological Coin Toss: Sigmund Freud observed that tossing a coin reveals what you actually desire the moment it is in the air.`;
+    } else {
+      // Intelligent Decision Psychology evaluation
+      // Rule 1: Slump risk comparison
+      if (slumpRiskA.percentage !== slumpRiskB.percentage) {
+        if (slumpRiskA.percentage < slumpRiskB.percentage) {
+          winner = 'A';
+          verdictTitle = `🏆 ${choiceA} Wins: Clean Afternoon Focus`;
+          verdictReasoning = `${choiceA} gives you the exact savory satisfaction you crave while saving you from the 2:45 PM carb slump that ${choiceB} would trigger.`;
+          psychologyInsight = `Decision Framing: By choosing ${choiceA}, you earn an immediate 3 PM productivity dividend with zero mealtime regret.`;
+        } else {
+          winner = 'B';
+          verdictTitle = `🏆 ${choiceB} Wins: Clean Afternoon Focus`;
+          verdictReasoning = `${choiceB} satisfies your hunger without the heavy carb lethargy of ${choiceA}, keeping you sharp and alert for the rest of the day.`;
+          psychologyInsight = `Choice Architecture: Protecting your afternoon energy momentum without feeling like you made a sacrifice.`;
+        }
+      } else {
+        // Tie breaker by travel distance
+        const estA = calculateTravelEstimate(userLoc, optA, transportMode);
+        const estB = calculateTravelEstimate(userLoc, optB, transportMode);
+        if (estA.durationMinutes <= estB.durationMinutes) {
+          winner = 'A';
+          verdictTitle = `🏆 ${choiceA} Wins: Quickest Arrival`;
+          verdictReasoning = `Both are great picks, but ${choiceA} is ${estA.durationMinutes} mins away at ${optA.hawkerCentre} (faster walk, less queue stress).`;
+          psychologyInsight = `Friction Reduction: Minimizing transition time maximizes your break relaxation.`;
+        } else {
+          winner = 'B';
+          verdictTitle = `🏆 ${choiceB} Wins: Quickest Arrival`;
+          verdictReasoning = `Both are tempting, but ${choiceB} is just ${estB.durationMinutes} mins away at ${optB.hawkerCentre}, saving you time.`;
+          psychologyInsight = `Friction Reduction: Minimizing transition time maximizes your break relaxation.`;
+        }
+      }
+    }
+
+    const winningOption = winner === 'A' ? optA : optB;
+    const winningChoiceName = winner === 'A' ? choiceA : choiceB;
+
+    const dualComparison: DualChoiceComparison = {
+      choiceA,
+      choiceB,
+      winner,
+      verdictTitle,
+      verdictReasoning,
+      slumpRiskA,
+      slumpRiskB,
+      psychologyInsight,
+      isCoinFlip
+    };
+
+    const travelEstimate = calculateTravelEstimate(userLoc, winningOption, transportMode);
+    const personalNote = this.synthesizePersonalNote(winningOption, diet, budget, priorities);
+    const energyNudge = this.synthesizeEnergyNudge(winningOption);
+
+    return {
+      option: winningOption,
+      pro: `Pro: Deadlock resolved! ${winningChoiceName} is chosen for maximum satisfaction with zero afternoon slump.`,
+      con: `Con: If you felt an instant secret twinge for ${winner === 'A' ? choiceB : choiceA}, your subconscious revealed your true craving!`,
+      opinion: `Opinion: Between ${choiceA} and ${choiceB}, ${winningChoiceName} wins today. ${verdictReasoning}`,
+      personalNote,
+      rejectionCount: 0,
+      sourceType: 'fast_lane',
+      sourceQuery: `${choiceA} vs ${choiceB}`,
+      decisionPriority: priorities.join(' > '),
+      travelEstimate,
+      energyNudge
+    };
   }
 }

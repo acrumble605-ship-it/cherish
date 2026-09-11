@@ -5,15 +5,17 @@ import {
 } from '../types';
 import { 
   MapPin, 
-  Clock, 
-  ShieldCheck, 
-  Lock, 
   CheckCircle2, 
   RefreshCw, 
   Search, 
-  DollarSign, 
   Utensils,
-  ExternalLink
+  ExternalLink,
+  Camera,
+  Scale,
+  Zap,
+  Coins,
+  ShieldCheck,
+  Award
 } from 'lucide-react';
 import { getGoogleMapsUrl } from '../data/hawkerData';
 
@@ -24,6 +26,7 @@ interface RecommendationCardProps {
   onSwitchToFastLane: () => void;
   onResetToNewMystery: () => void;
   isLoading: boolean;
+  onOpenLogMeal?: () => void;
 }
 
 export const RecommendationCard: React.FC<RecommendationCardProps> = ({
@@ -32,12 +35,14 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
   onRejectAndRefine,
   onSwitchToFastLane,
   onResetToNewMystery,
-  isLoading
+  isLoading,
+  onOpenLogMeal
 }) => {
   const [showRejectDrawer, setShowRejectDrawer] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
-  const { option, personalNote, rejectionCount, sourceType } = recommendation;
+  const { option, personalNote, rejectionCount, sourceType, dualChoiceComparison, energyNudge } = recommendation;
   const isCapped = rejectionCount >= 3;
 
   const rejectionReasons: { key: RejectionReason; label: string; sub: string }[] = [
@@ -59,26 +64,31 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto py-4 px-4" id="recommendation-view">
+    <div className="w-full max-w-2xl mx-auto py-2 sm:py-4 px-1 sm:px-4" id="recommendation-view">
       
-      {/* Top Status Bar: Concierge Pick Indicator */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Top Status Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#c5a059] animate-ping" />
-          <span className="text-[10px] uppercase tracking-[0.4em] font-sans text-[#c5a059]">
-            Kale Concierge Pick
+          <span className="w-2 h-2 rounded-full bg-[#c5a059] animate-ping shrink-0" />
+          <span className="text-[10px] uppercase tracking-[0.25em] font-sans text-[#c5a059] font-medium">
+            Velvet Pick
           </span>
-          {sourceType === 'fast_lane' && (
-            <span className="text-[10px] uppercase tracking-wider px-2.5 py-0.5 rounded-full glass text-[#c5a059] border border-[#c5a059]/30">
+          {dualChoiceComparison ? (
+            <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#380b23] text-[#c5a059] border border-[#c5a059]/40 flex items-center gap-1 font-sans">
+              <Scale className="w-3 h-3" />
+              Deadlock Resolved
+            </span>
+          ) : sourceType === 'fast_lane' ? (
+            <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#380b23] text-[#c5a059] border border-[#c5a059]/40 font-sans">
               Fast Lane
             </span>
-          )}
+          ) : null}
         </div>
 
         {/* Rejection indicator bar */}
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-sans text-[#f5f2ed]/60">
+        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-sans text-[#f5f2ed]/70">
           <span>Rejections:</span>
-          <div className="flex gap-1.5">
+          <div className="flex gap-1">
             {[1, 2, 3].map(dot => (
               <span 
                 key={dot}
@@ -88,225 +98,255 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
               />
             ))}
           </div>
-          <span className="opacity-60">({rejectionCount}/3)</span>
+          <span className="opacity-70">({rejectionCount}/3)</span>
         </div>
       </div>
 
       {/* Main Pick Card */}
-      <div className="relative rounded-3xl glass bg-white/[0.03] border border-white/15 glow p-6 sm:p-9 overflow-hidden">
+      <div className="relative rounded-3xl bg-[#190510] border border-white/20 shadow-[0_15px_50px_rgba(0,0,0,0.7)] p-4 sm:p-7 overflow-hidden">
         
         {/* Stall & Hawker Location Header */}
-        <div className="pb-2">
-          <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
-            <div>
-              <span className="text-[10px] uppercase tracking-[0.35em] font-sans text-[#c5a059] opacity-90">
-                {option.cuisine}
+        <div className="pb-1">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] uppercase tracking-[0.25em] font-sans text-[#c5a059] font-medium block truncate">
+                🍜 {option.cuisine}
               </span>
-              <h3 className="font-serif-lux text-3xl sm:text-4xl font-light italic text-[#f5f2ed] tracking-tight mt-1">
+              <h3 className="font-serif-lux text-2xl sm:text-3xl md:text-4xl font-light italic text-[#f5f2ed] tracking-tight mt-0.5 leading-snug">
                 {option.stallName}
               </h3>
             </div>
-            
-            <div className="text-right">
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full glass border border-[#c5a059]/40 text-xs font-sans text-[#c5a059]">
-                <DollarSign className="w-3 h-3 text-[#c5a059]" />
-                {option.priceRange}
-              </span>
-            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-y-2.5 gap-x-3 text-xs font-sans">
-            {/* Interactive Google Maps Link with Live Navigation Route */}
+          {/* Interactive Google Maps Turn-by-Turn Route Link */}
+          <div className="flex flex-wrap items-center gap-2 text-xs font-sans mt-2">
             <a
               href={recommendation.travelEstimate?.googleMapsUrl || getGoogleMapsUrl(option)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass border border-[#c5a059]/40 bg-[#4a0e2e]/25 text-[#f5f2ed] hover:text-[#c5a059] hover:border-[#c5a059] transition-all group/map cursor-pointer shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#2e091d] border border-[#c5a059]/40 text-[#f5f2ed] hover:text-[#c5a059] hover:border-[#c5a059] transition-all group/map cursor-pointer shadow-sm text-xs"
               id="recommendation-google-maps-link"
               title="Open turn-by-turn route in Google Maps"
             >
               <MapPin className="w-3.5 h-3.5 text-[#c5a059] shrink-0 group-hover/map:scale-110 transition-transform" />
-              <span className="font-medium underline underline-offset-2 decoration-[#c5a059]/40 group-hover/map:decoration-[#c5a059]">
-                {option.location}
+              <span className="font-medium underline underline-offset-2 decoration-[#c5a059]/40 group-hover/map:decoration-[#c5a059] truncate max-w-[200px] sm:max-w-none">
+                📍 {option.location}
               </span>
               <ExternalLink className="w-3 h-3 text-[#c5a059]/70 group-hover/map:text-[#c5a059] shrink-0" />
             </a>
 
-            <div className="flex items-center gap-1.5 text-[#f5f2ed]/80 px-2 py-1 rounded-lg glass border border-white/10">
-              <Clock className="w-3.5 h-3.5 text-[#c5a059]" />
-              <span className="font-medium text-[#c5a059]">
-                {recommendation.travelEstimate ? recommendation.travelEstimate.durationDisplay : `~${option.walkTimeMinutes} min walk`}
+            {recommendation.travelEstimate?.routeTip && (
+              <span className="text-[11px] text-[#f5f2ed]/70 font-sans">
+                {recommendation.travelEstimate.routeTip}
               </span>
-              <span className="text-[#f5f2ed]/50">&bull;</span>
-              <span className="text-[#f5f2ed]/70">
-                {recommendation.travelEstimate ? recommendation.travelEstimate.distanceDisplay : 'near CBD'}
-              </span>
+            )}
+          </div>
+
+          {/* Mischievous Curiosity Teaser & Weather Spark */}
+          {(recommendation.curiosityTeaser || recommendation.weatherAdvice) && (
+            <div className="mt-3 p-3 rounded-2xl bg-gradient-to-r from-[#380b22] to-[#250716] border border-[#c5a059]/40 shadow-sm space-y-1">
+              {recommendation.curiosityTeaser && (
+                <div className="flex items-start gap-2">
+                  <span className="text-base shrink-0">😏</span>
+                  <p className="text-xs text-[#edd49a] font-medium italic leading-relaxed">
+                    {recommendation.curiosityTeaser}
+                  </p>
+                </div>
+              )}
+              {recommendation.weatherAdvice && (
+                <div className="text-[11px] text-[#f5f2ed]/70 pl-6 flex items-center gap-1.5">
+                  <span>🌦️ {recommendation.weatherAdvice}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* SPACIOUS, UN-CRAMPED VITAL STATS BAR (Budget, Calories, Nutrition, Walk) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 font-sans" id="spacious-vital-metrics">
+          {/* 1. Budget */}
+          <div className="p-3 rounded-2xl bg-[#250717] border border-white/15 flex items-center gap-3 shadow-sm">
+            <span className="text-2xl shrink-0">💰</span>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-[#c5a059] font-medium">Budget</div>
+              <div className="text-sm font-semibold text-[#f5f2ed] truncate mt-0.5">{option.priceRange}</div>
             </div>
           </div>
 
-          {recommendation.travelEstimate?.routeTip && (
-            <div className="mt-2 text-[11px] text-[#f5f2ed]/70 font-sans flex items-center gap-1.5">
-              <span>{recommendation.travelEstimate.routeTip}</span>
+          {/* 2. Calories (Generously spaced & clearly separated) */}
+          <div className="p-3 rounded-2xl bg-[#250717] border border-white/15 flex items-center gap-3 shadow-sm">
+            <span className="text-2xl shrink-0">⚖️</span>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-[#8ce2ad] font-medium">Calories</div>
+              <div className="text-sm font-semibold text-[#f5f2ed] truncate mt-0.5">
+                {personalNote.calorieEstimate || '~420 kcal'}
+              </div>
             </div>
-          )}
+          </div>
 
-          {/* Nutrition / Health Badge */}
-          <div className="mt-3 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border border-white/10 text-[11px] font-sans text-[#f5f2ed]/80">
-              <ShieldCheck className="w-3 h-3 text-[#8ce2ad]" />
-              {option.healthScore}
-            </span>
+          {/* 3. Nutrition Grade */}
+          <div className="p-3 rounded-2xl bg-[#250717] border border-white/15 flex items-center gap-3 shadow-sm">
+            <span className="text-2xl shrink-0">🥗</span>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-[#8ce2ad] font-medium">Nutrition</div>
+              <div className="text-sm font-semibold text-[#f5f2ed] truncate mt-0.5">{option.healthScore}</div>
+            </div>
+          </div>
+
+          {/* 4. Travel / ETA */}
+          <div className="p-3 rounded-2xl bg-[#250717] border border-white/15 flex items-center gap-3 shadow-sm">
+            <span className="text-2xl shrink-0">🚶</span>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-[#c5a059] font-medium">Travel</div>
+              <div className="text-sm font-semibold text-[#f5f2ed] truncate mt-0.5">
+                {(() => {
+                  const est = recommendation.travelEstimate;
+                  if (est) {
+                    if (est.transportMode === 'walking' && est.durationMinutes > 20) {
+                      return '12 min walk';
+                    }
+                    return est.durationDisplay;
+                  }
+                  return `~${Math.min(20, option.walkTimeMinutes || 10)}m walk`;
+                })()}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Visual Image of the Recommended Dish */}
-        {option.imageUrl && (
-          <div className="relative my-5 rounded-2xl overflow-hidden border border-white/15 bg-[#2d0b1b]/40 shadow-xl group" id="dish-visual-preview">
-            <div className="aspect-[16/9] w-full overflow-hidden relative">
-              <img
-                src={option.imageUrl}
-                alt={option.dishHighlights[0] || option.stallName}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
-              />
-              {/* Subtle gradient vignette scrim */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#1a050d]/90 via-[#1a050d]/20 to-transparent pointer-events-none" />
-              
-              {/* Direct Google Maps Direction Pill */}
-              <a
-                href={getGoogleMapsUrl(option)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full glass border border-white/20 bg-black/60 text-[#f5f2ed] hover:bg-[#4a0e2e]/90 hover:border-[#c5a059] text-[11px] font-sans font-medium transition-all backdrop-blur-md shadow-lg z-10"
-                title="Open stall in Google Maps"
-              >
-                <MapPin className="w-3 h-3 text-[#c5a059]" />
-                <span>Open in Maps</span>
-                <ExternalLink className="w-3 h-3 text-[#f5f2ed]/70" />
-              </a>
+        {/* Drop Down Arrow Toggle for Extra Notes (Zero-Scroll UI) */}
+        <div className="my-3 text-center">
+          <button
+            id="btn-toggle-extra-details"
+            onClick={() => setShowDetails(!showDetails)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-[#edd49a] transition-all cursor-pointer shadow-sm hover:border-[#c5a059]/40"
+          >
+            <span>{showDetails ? 'Hide Detailed Notes' : 'Drop Down for Nutrition & Details'}</span>
+            <span className={`transition-transform duration-300 ${showDetails ? 'rotate-180' : ''}`}>
+              ▼
+            </span>
+          </button>
+        </div>
 
-              {/* Featured Dish Badge */}
-              <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3 pointer-events-none">
-                <div className="space-y-0.5">
-                  <span className="text-[10px] uppercase font-sans tracking-[0.25em] text-[#c5a059] flex items-center gap-1 drop-shadow">
-                    <Utensils className="w-3 h-3 text-[#c5a059]" />
-                    Featured Dish
+        {/* Collapsible Deep Notes Section */}
+        {showDetails && (
+          <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+            {/* SUBTLE DECISION PSYCHOLOGY & 3 PM ENERGY NUDGE */}
+            {energyNudge && (
+              <div className="p-3.5 rounded-2xl bg-[#230716] border border-[#c5a059]/40 shadow-sm font-sans space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-[#c5a059]" />
+                    <span className="text-xs font-semibold text-[#f5f2ed] uppercase tracking-wider">
+                      ⚡ 3 PM Alertness Forecast
+                    </span>
+                  </div>
+                  <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium border ${
+                    (energyNudge.slumpRiskLevel === 'low' || (energyNudge as any).slumpRisk === 'Low')
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : (energyNudge.slumpRiskLevel === 'moderate' || (energyNudge as any).slumpRisk === 'Moderate')
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  }`}>
+                    {energyNudge.forecastLabel || ((energyNudge as any).slumpRisk === 'Low' ? '🟢 Peak Clarity' : '🟡 Balanced')}
                   </span>
-                  <p className="font-serif-lux text-xl sm:text-2xl text-[#f5f2ed] font-light italic leading-snug drop-shadow-md">
-                    {option.dishHighlights[0]}
-                  </p>
                 </div>
-                {option.dishHighlights[1] && (
-                  <span className="hidden sm:inline-flex text-[11px] font-sans px-2.5 py-1 rounded-full glass border border-white/20 text-[#f5f2ed]/90 backdrop-blur-md shrink-0">
-                    {option.dishHighlights[1]}
+
+                <p className="text-xs text-[#f5f2ed]/80 leading-relaxed">
+                  {energyNudge.forecastDetail || (energyNudge as any).message}
+                </p>
+
+                {(energyNudge.counterHack || (energyNudge as any).microNudge) && (
+                  <div className="p-2 rounded-xl bg-black/30 border border-white/10 text-[11px] text-[#f5f2ed]/90 flex items-start gap-2">
+                    <span className="text-[#c5a059] font-bold shrink-0">💡 Hack:</span>
+                    <span>{energyNudge.counterHack || (energyNudge as any).microNudge}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* WHY CHOSEN / PRIVATE DIETARY NOTE */}
+            <div className="p-4 rounded-2xl bg-[#28081a] border border-[#c5a059]/50 relative space-y-2.5" id="personalized-private-note">
+              <div className="flex items-center justify-between border-b border-[#c5a059]/20 pb-1.5">
+                <span className="text-[10px] uppercase font-sans tracking-[0.25em] text-[#c5a059] font-medium">
+                  Why Picked For You
+                </span>
+                {personalNote.calorieEstimate && (
+                  <span className="px-2 py-0.5 rounded-full border border-[#c5a059]/40 bg-[#c5a059]/10 text-xs font-sans text-[#c5a059]">
+                    {personalNote.calorieEstimate}
                   </span>
                 )}
+              </div>
+              
+              <p className="text-xs text-[#f5f2ed] leading-relaxed">
+                {personalNote.priorityAlignment?.details || personalNote.whyFits}
+              </p>
+
+              {personalNote.macroBreakdown && (
+                <div className="p-2 rounded-xl bg-black/20 border border-white/10 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span className="text-[#8ce2ad] font-medium text-[11px]">🥩 {personalNote.macroBreakdown.protein}</span>
+                  <span className="text-[#c5a059] font-medium text-[11px]">🌾 {personalNote.macroBreakdown.carbs}</span>
+                  <span className="text-[#f5f2ed]/80 font-medium text-[11px]">🥑 {personalNote.macroBreakdown.fats}</span>
+                </div>
+              )}
+
+              <div className="text-xs">
+                <strong className="text-[#c5a059]">Order: </strong>
+                <span>{personalNote.whatToOrder}</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Hairline gold accent from Immersive UI theme */}
-        <div className="h-[1px] w-full bg-[#c5a059] opacity-30 mb-6 mt-2"></div>
-
-        {/* STANDING RULE: PERSONALIZED PRIVATE NOTE & WHY CHOSEN */}
-        <div className="mb-6 p-5 sm:p-6 rounded-2xl glass bg-[#4a0e2e]/30 border border-[#c5a059]/50 relative space-y-3.5" id="personalized-private-note">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#c5a059]/20 pb-2.5">
-            <div className="flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-[#c5a059]" />
-              <span className="text-[10px] uppercase font-sans tracking-[0.3em] text-[#c5a059] font-medium">
-                Why Cherish Picked This For You
-              </span>
-            </div>
-            {personalNote.calorieEstimate && (
-              <span className="px-2.5 py-0.5 rounded-full glass border border-[#c5a059]/40 bg-[#c5a059]/10 text-xs font-sans text-[#c5a059] font-medium">
-                {personalNote.calorieEstimate}
-              </span>
-            )}
-          </div>
-          
-          <div className="space-y-2.5 text-xs sm:text-sm text-[#f5f2ed]/90 font-sans font-light">
-            {/* Priority alignment reason */}
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-[#c5a059] font-medium mb-0.5">
-                Target Alignment
-              </div>
-              <p className="leading-relaxed text-[#f5f2ed]">
-                {personalNote.priorityAlignment?.details || personalNote.whyFits}
-              </p>
-            </div>
-
-            {/* Macro Breakdown */}
-            {personalNote.macroBreakdown && (
-              <div className="p-2.5 rounded-xl glass bg-white/[0.04] border border-white/10 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-                <span className="text-[#f5f2ed]/60">Nutrient Split:</span>
-                <span className="text-[#8ce2ad] font-medium">🥩 {personalNote.macroBreakdown.protein} Protein</span>
-                <span className="text-[#c5a059] font-medium">🌾 {personalNote.macroBreakdown.carbs} Carbs</span>
-                <span className="text-[#f5f2ed]/80 font-medium">🥑 {personalNote.macroBreakdown.fats} Fat</span>
-              </div>
-            )}
-
-            {/* What to order & counter modification */}
-            <div className="space-y-1">
-              <p className="leading-relaxed">
-                <strong className="text-[#c5a059] font-medium">What to order: </strong>
-                {personalNote.whatToOrder}
-              </p>
-              {personalNote.counterModification && (
-                <div className="p-2 rounded-lg glass bg-[#2d0b1b]/50 border border-[#c5a059]/30 text-[11px] text-[#f5f2ed]/90">
-                  <span className="text-[#c5a059] font-medium">💡 Counter modification: </span>
-                  <span>{personalNote.counterModification}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] text-[#c5a059]/80 italic pt-1 border-t border-white/5">
-              <span>Budget fit: {personalNote.budgetMatch}</span>
-              {recommendation.decisionPriority && (
-                <span className="text-[10px] text-[#f5f2ed]/40 uppercase tracking-wider not-italic">
-                  Weights: {recommendation.decisionPriority}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
         {/* 3RD REJECTION CAP BANNER */}
         {isCapped && (
-          <div className="mb-6 p-5 rounded-2xl glass bg-[#4a0e2e]/40 border border-[#c5a059]/60 text-xs text-[#f5f2ed] space-y-2">
+          <div className="mb-6 p-5 rounded-2xl bg-[#3b0d24] border border-[#c5a059]/60 text-xs text-[#f5f2ed] space-y-2">
             <div className="font-serif-lux italic text-base text-[#c5a059] flex items-center gap-1.5">
               <span>Kale commits:</span>
               <span>&ldquo;Alright, going with this one &mdash; you&apos;ve got to eat sometime!&rdquo;</span>
             </div>
             <p className="text-[11px] text-[#f5f2ed]/70 font-sans">
-              We have hit 3 rejections to protect you from decision paralysis. Alternatively, switch to the Fast Lane if you want to type an exact craving.
+              We have hit 3 rejections to protect you from decision paralysis. Alternatively, switch to the Fast Lane if you want to compare two cravings.
             </p>
             <button
               onClick={onSwitchToFastLane}
-              className="inline-flex items-center gap-1.5 text-xs text-[#c5a059] hover:underline font-sans"
+              className="inline-flex items-center gap-1.5 text-xs text-[#c5a059] hover:underline font-sans cursor-pointer"
             >
               <Search className="w-3.5 h-3.5" />
-              <span>Clearly I&apos;m not reading your mind today &mdash; what are you actually craving?</span>
+              <span>Clearly I&apos;m not reading your mind today &mdash; let&apos;s pick between two dishes?</span>
             </button>
           </div>
         )}
 
         {/* ACTION BUTTONS: ACCEPT OR REJECT-AND-REFINE */}
         {accepted ? (
-          <div className="p-5 rounded-2xl glass bg-white/5 border border-[#8ce2ad]/50 text-center space-y-2">
+          <div className="p-5 rounded-2xl bg-[#260819] border border-[#8ce2ad]/50 text-center space-y-3">
             <div className="flex items-center justify-center gap-2 text-sm font-sans font-medium text-[#8ce2ad]">
-              <CheckCircle2 className="w-4 h-4" />
+              <CheckCircle2 className="w-4 h-4 text-[#8ce2ad]" />
               <span>Choice Sealed &bull; Enjoy your hawker lunch!</span>
             </div>
             <p className="text-xs text-[#f5f2ed]/70 font-sans">
-              Decision fatigue avoided. Logged to your mindful dining record.
+              Decision fatigue eliminated. Want to log this meal and decorate your photo?
             </p>
-            <button
-              onClick={onResetToNewMystery}
-              className="mt-2 text-xs text-[#c5a059] underline hover:text-[#f5f2ed] font-sans"
-            >
-              Start fresh for another meal
-            </button>
+            
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
+              {onOpenLogMeal && (
+                <button
+                  onClick={onOpenLogMeal}
+                  className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-[#c5a059] hover:bg-[#b08b45] text-black font-semibold text-xs font-sans uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md active:scale-98"
+                >
+                  <Camera className="w-4 h-4 text-black" />
+                  <span>Log Meal &amp; Decorate Photo 📸</span>
+                </button>
+              )}
+
+              <button
+                onClick={onResetToNewMystery}
+                className="text-xs text-[#c5a059] underline hover:text-[#f5f2ed] font-sans py-1.5 px-3 cursor-pointer"
+              >
+                Start fresh for another meal
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -316,10 +356,10 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                 id="btn-accept-pick"
                 onClick={handleAcceptClick}
                 disabled={isLoading}
-                className="w-full py-4 px-6 rounded-2xl glass bg-white/10 hover:bg-white/15 border border-[#c5a059] text-[#f5f2ed] font-sans text-xs uppercase tracking-[0.25em] glow shadow-lg hover:border-[#f5f2ed] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-[#edd49a] via-[#c5a059] to-[#a3792b] hover:from-[#f3deab] hover:to-[#b68835] text-black font-sans text-xs uppercase tracking-[0.25em] font-bold shadow-[0_4px_25px_rgba(197,160,89,0.35)] hover:shadow-[0_6px_35px_rgba(197,160,89,0.55)] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer border border-[#f5e2b8]/60"
               >
-                <CheckCircle2 className="w-4 h-4 text-[#c5a059]" />
-                <span>I&apos;m Going Here</span>
+                <CheckCircle2 className="w-4 h-4 text-black" />
+                <span>I&apos;m Going Here ✨</span>
               </button>
 
               {/* Secondary Reject & Refine CTA */}
@@ -327,25 +367,38 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                 id="btn-reject-refine"
                 onClick={() => setShowRejectDrawer(!showRejectDrawer)}
                 disabled={isLoading || isCapped}
-                className={`w-full py-4 px-6 rounded-2xl glass font-sans text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                className={`w-full py-4 px-6 rounded-2xl font-sans text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
                   isCapped
-                    ? 'opacity-40 cursor-not-allowed border-white/5 text-[#f5f2ed]/30'
-                    : 'border border-white/15 hover:border-[#c5a059]/60 text-[#f5f2ed]/80 hover:text-[#f5f2ed] hover:bg-white/5 cursor-pointer'
+                    ? 'opacity-40 cursor-not-allowed border border-white/5 text-[#f5f2ed]/30 bg-transparent'
+                    : 'bg-[#250717] border border-white/20 hover:border-[#c5a059] text-[#f5f2ed] hover:bg-[#320a20] cursor-pointer'
                 }`}
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-[#c5a059] ${isLoading ? 'animate-spin' : ''}`} />
-                <span>{isCapped ? 'Cap Reached' : 'Not Feeling This (Refine)'}</span>
+                <span>{isCapped ? 'Cap Reached' : 'Not Feeling This (Refine) 🔄'}</span>
               </button>
             </div>
 
+            {/* Quick Log Meal Option even before finishing */}
+            {onOpenLogMeal && (
+              <div className="text-center pt-1">
+                <button
+                  onClick={onOpenLogMeal}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#c5a059]/90 hover:text-[#c5a059] hover:underline font-sans cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Log this dish to Food Journal &amp; share story 📸</span>
+                </button>
+              </div>
+            )}
+
             {/* REJECT & REFINE LIGHTWEIGHT 1-TAP REASON DRAWER */}
             {showRejectDrawer && !isCapped && (
-              <div className="mt-4 p-5 rounded-2xl glass border border-white/10 space-y-3">
+              <div className="mt-4 p-5 rounded-2xl bg-[#230716] border border-white/20 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] uppercase tracking-[0.3em] font-sans text-[#c5a059]">
                     1-Tap Calibration
                   </span>
-                  <span className="text-[10px] text-[#f5f2ed]/50 font-sans">Kale recalibrates next pick</span>
+                  <span className="text-[10px] text-[#f5f2ed]/60 font-sans">Kale recalibrates next pick</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -354,12 +407,12 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                       key={r.key}
                       id={`reason-${r.key}`}
                       onClick={() => handleReasonClick(r.key)}
-                      className="text-left p-3 rounded-xl glass border border-white/10 hover:border-[#c5a059]/60 hover:bg-white/5 transition-all group cursor-pointer"
+                      className="text-left p-3 rounded-xl bg-[#1d0513] border border-white/10 hover:border-[#c5a059] transition-all group cursor-pointer"
                     >
                       <div className="text-xs font-sans text-[#f5f2ed] group-hover:text-[#c5a059]">
                         {r.label}
                       </div>
-                      <div className="text-[10px] text-[#f5f2ed]/50 font-sans">
+                      <div className="text-[10px] text-[#f5f2ed]/60 font-sans">
                         {r.sub}
                       </div>
                     </button>
